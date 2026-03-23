@@ -698,6 +698,7 @@ export default function DirectorDashboard() {
   });
   const [censusUploadError, setCensusUploadError] = useState('');
   const [censusProcessing, setCensusProcessing] = useState(false);
+  const [selectedCensusRegion, setSelectedCensusRegion] = useState('all');
 
   const saveCensusData = (data) => {
     setCensusData(data);
@@ -1112,7 +1113,6 @@ export default function DirectorDashboard() {
               const hasCensus = !!(censusData && censusData.counts);
               const totalCensus = hasCensus ? censusData.total : null;
               const activeCensus = hasCensus ? censusData.activeCensus : null;
-              const [selectedCensusRegion, setSelectedCensusRegion] = React.useState('all');
               const regionKeys = hasCensus ? Object.keys(censusData.byRegion || {}).sort() : [];
               const displayCounts = hasCensus && selectedCensusRegion !== 'all' && censusData.byRegion[selectedCensusRegion]
                 ? censusData.byRegion[selectedCensusRegion]
