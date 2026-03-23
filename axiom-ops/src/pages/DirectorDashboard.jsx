@@ -79,7 +79,7 @@ function parseParioxCSV(text) {
       visits: data.completed, scheduled: data.scheduled, target: Math.round(VISIT_TARGET / 5)
     }));
 
-  return { completedVisits: completed, missedVisits: missed, scheduledVisits: scheduled, dailyTrend, rowCount: lines.length - 1 };
+  return { completedVisits: completed, missedVisits: missed, scheduledVisits: scheduled, dailyTrend, rowCount: lines.length - 1, regionData };
 }
 
 // ── Shared components ─────────────────────────────────────────
@@ -200,7 +200,32 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
       day: new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' }),
       visits: data.completed, scheduled: data.scheduled, target: Math.round(VISIT_TARGET / 5)
     }));
-    return { completedVisits: completed, missedVisits: missed, scheduledVisits: scheduled, dailyTrend, rowCount: rows.length - 1 };
+    // Build region breakdown
+  const regionMap = {};
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i]; if (!row || !row.length) continue;
+    const regionIdx = headers.findIndex(h => h === 'region');
+    const staffIdx = headers.findIndex(h => h === 'staff');
+    const patientIdx = headers.findIndex(h => h === 'patient');
+    const statusIdx2 = headers.findIndex(h => h.includes('status'));
+    if (regionIdx === -1) continue;
+    const region = String(row[regionIdx] || '').trim();
+    const staff = String(row[staffIdx] || '').trim();
+    const patient = String(row[patientIdx] || '').trim();
+    const status = String(row[statusIdx2] || '').toLowerCase().trim();
+    const isComplete = status.startsWith('completed');
+    if (!region) continue;
+    if (!regionMap[region]) regionMap[region] = { scheduled: 0, completed: 0, clinicians: new Set(), patients: new Set(), clinicianMap: {} };
+    regionMap[region].scheduled++;
+    if (isComplete) regionMap[region].completed++;
+    if (staff) { regionMap[region].clinicians.add(staff); if (!regionMap[region].clinicianMap[staff]) regionMap[region].clinicianMap[staff] = { scheduled: 0, completed: 0, patients: new Set() }; regionMap[region].clinicianMap[staff].scheduled++; if (isComplete) regionMap[region].clinicianMap[staff].completed++; if (patient) regionMap[region].clinicianMap[staff].patients.add(patient); }
+    if (patient) regionMap[region].patients.add(patient);
+  }
+  const regionData = {};
+  for (const [region, data] of Object.entries(regionMap)) {
+    regionData[region] = { scheduled: data.scheduled, completed: data.completed, clinicians: data.clinicians.size, patients: data.patients.size, clinicianList: Object.entries(data.clinicianMap).map(([name, d]) => ({ name, scheduled: d.scheduled, completed: d.completed, patients: d.patients.size })) };
+  }
+  return { completedVisits: completed, missedVisits: missed, scheduledVisits: scheduled, dailyTrend, rowCount: rows.length - 1, regionData };
   }
 
   function handleFile(file) {
@@ -361,8 +386,9 @@ export default function DirectorDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [time, setTime] = useState(new Date());
-  const [manualVisits, setManualVisits] = useState(650);
-  const [csvData, setCsvData] = useState(null);
+  const [manualVisits, setManualVisits] = useState(() => { try { return parseInt(localStorage.getItem('axiom_manual_visits') || '650'); } catch { return 650; } });
+  const [csvData, setCsvData] = useState(() => { try { const s = localStorage.getItem('axiom_pariox_data'); return s ? JSON.parse(s) : null; } catch { return null; } });
+  const [selectedRegion, setSelectedRegion] = useState(null);
   const [driveLinks, setDriveLinks] = useState(() => { try { return JSON.parse(localStorage.getItem('axiom_drive_links') || '[]'); } catch { return []; } });
 
   useEffect(() => {
@@ -390,7 +416,7 @@ export default function DirectorDashboard() {
 
   const addDriveLink = link => { const u = [...driveLinks, link]; setDriveLinks(u); localStorage.setItem('axiom_drive_links', JSON.stringify(u)); };
   const removeDriveLink = id => { const u = driveLinks.filter(l => l.id !== id); setDriveLinks(u); localStorage.setItem('axiom_drive_links', JSON.stringify(u)); };
-  const handleCSV = data => { setCsvData(data); if (data.completedVisits > 0) setManualVisits(data.completedVisits); };
+  const handleCSV = data => { setCsvData(data); if (data.completedVisits > 0) setManualVisits(data.completedVisits); try { localStorage.setItem('axiom_pariox_data', JSON.stringify(data)); } catch(e) {} };
 
   const sum = (key, r) => r.reduce((s, x) => s + (x[key] || 0), 0);
   const totalPatients = sum('active_patients', morningReports);
@@ -405,7 +431,7 @@ export default function DirectorDashboard() {
   const visitPct = Math.min(Math.round((manualVisits / VISIT_TARGET) * 100), 100);
   const visitGap = VISIT_TARGET - manualVisits;
   const trendData = csvData?.dailyTrend?.length > 0 ? csvData.dailyTrend : weeklyData;
-  const tabs = ['overview', 'team', 'trends', 'reports', 'data'];
+  const tabs = ['overview', 'regions', 'team', 'trends', 'reports', 'data'];
 
   if (loading) return <div style={{ minHeight: '100vh', background: B.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: B.lightGray, fontFamily: 'DM Sans, sans-serif' }}>Loading...</div>;
 
@@ -451,7 +477,7 @@ export default function DirectorDashboard() {
                   Weekly Visit Target {csvData && <span style={{ color: B.green, fontWeight: 700 }}>· Pariox Data Loaded</span>}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
-                  <input className="visits-input" type="number" value={manualVisits} onChange={e => setManualVisits(parseInt(e.target.value) || 0)} />
+                  <input className="visits-input" type="number" value={manualVisits} onChange={e => { const v = parseInt(e.target.value) || 0; setManualVisits(v); try { localStorage.setItem('axiom_manual_visits', v); } catch(e) {} }} />
                   <span style={{ fontSize: 16, color: B.lightGray }}>/ {VISIT_TARGET} visits/wk</span>
                 </div>
                 <div style={{ height: 8, background: '#F5EDEB', borderRadius: 4 }}>
@@ -493,6 +519,126 @@ export default function DirectorDashboard() {
               {reportsIn === coordinators.length && totalAuthsExpiring <= 3 && totalMissed <= 5 && visitGap <= 100 && coordinators.length > 0 && <AlertItem text="No critical alerts — team is operating within thresholds" severity="info" />}
             </div>
           </>
+        )}
+
+
+        {/* ── REGIONS ─────────────────────────────────────────── */}
+        {activeTab === 'regions' && (
+          <div>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>Regional Breakdown</div>
+              <div style={{ fontSize: 13, color: B.gray }}>
+                {csvData ? `Data from last Pariox upload — ${csvData.rowCount} visits across ${Object.keys(csvData.regionData || {}).length} regions` : 'Upload a Pariox export in the Data tab to see regional breakdowns'}
+              </div>
+            </div>
+
+            {!csvData ? (
+              <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '48px 24px', textAlign: 'center', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>📊</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: B.black, marginBottom: 8 }}>No Pariox data loaded</div>
+                <div style={{ fontSize: 13, color: B.gray, marginBottom: 20 }}>Upload your weekly Pariox export in the Data tab to see per-region and per-clinician breakdowns</div>
+                <button onClick={() => setActiveTab('data')} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 8, color: '#fff', padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Go to Data Tab →</button>
+              </div>
+            ) : (
+              <>
+                {/* Region summary cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
+                  {Object.entries(csvData.regionData || {}).sort(([,a],[,b]) => b.scheduled - a.scheduled).map(([region, data]) => {
+                    const compPct = data.scheduled > 0 ? Math.round(data.completed / data.scheduled * 100) : 0;
+                    const barColor = compPct >= 80 ? B.green : compPct >= 50 ? B.yellow : B.red;
+                    return (
+                      <div key={region} onClick={() => setSelectedRegion(selectedRegion === region ? null : region)}
+                        style={{ background: selectedRegion === region ? '#FFF5F2' : B.cardBg, border: `1.5px solid ${selectedRegion === region ? B.red : B.border}`, borderRadius: 14, padding: '18px 20px', cursor: 'pointer', transition: 'all 0.15s', boxShadow: '0 1px 4px rgba(139,26,16,0.06)', position: 'relative', overflow: 'hidden' }}>
+                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${B.red}, ${B.orange})` }} />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                          <div>
+                            <div style={{ fontSize: 22, fontWeight: 800, color: B.red, fontFamily: "'DM Mono', monospace" }}>Region {region}</div>
+                            <div style={{ fontSize: 11, color: B.lightGray, marginTop: 2 }}>{data.clinicians} clinicians · {data.patients} patients</div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 24, fontWeight: 800, color: barColor, fontFamily: "'DM Mono', monospace" }}>{compPct}%</div>
+                            <div style={{ fontSize: 10, color: B.lightGray }}>complete</div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                          {[
+                            { label: 'Scheduled', value: data.scheduled, color: B.black },
+                            { label: 'Completed', value: data.completed, color: B.green },
+                          ].map(m => (
+                            <div key={m.label} style={{ background: '#FBF7F6', borderRadius: 6, padding: '6px 10px', textAlign: 'center' }}>
+                              <div style={{ fontSize: 16, fontWeight: 700, color: m.color, fontFamily: "'DM Mono', monospace" }}>{m.value}</div>
+                              <div style={{ fontSize: 9, color: B.lightGray, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{m.label}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ height: 4, background: '#F5EDEB', borderRadius: 2 }}>
+                          <div style={{ height: '100%', width: `${compPct}%`, borderRadius: 2, background: barColor, transition: 'width 0.5s ease' }} />
+                        </div>
+                        <div style={{ fontSize: 10, color: B.lightGray, marginTop: 6, textAlign: 'center' }}>Click to see clinicians ↓</div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Clinician drill-down */}
+                {selectedRegion && csvData.regionData[selectedRegion] && (
+                  <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, overflow: 'hidden', boxShadow: '0 1px 6px rgba(139,26,16,0.08)' }}>
+                    <div style={{ background: '#FFF5F2', borderBottom: `1px solid ${B.border}`, padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: B.red }}>Region {selectedRegion} — Clinician Productivity</div>
+                        <div style={{ fontSize: 12, color: B.gray, marginTop: 2 }}>{csvData.regionData[selectedRegion].clinicians} clinicians · {csvData.regionData[selectedRegion].scheduled} total visits this week</div>
+                      </div>
+                      <button onClick={() => setSelectedRegion(null)} style={{ background: 'none', border: `1px solid ${B.border}`, borderRadius: 8, color: B.gray, padding: '6px 12px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>✕ Close</button>
+                    </div>
+
+                    {/* Clinician table header */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '220px 100px 100px 100px 1fr', padding: '10px 24px', background: '#FBF7F6', borderBottom: `1px solid ${B.border}` }}>
+                      {['Clinician', 'Scheduled', 'Completed', 'Completion', 'Progress'].map((h, i) => (
+                        <div key={h} style={{ fontSize: 10, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', textAlign: i > 0 ? 'center' : 'left' }}>{h}</div>
+                      ))}
+                    </div>
+
+                    {(csvData.regionData[selectedRegion].clinicianList || [])
+                      .sort((a, b) => b.scheduled - a.scheduled)
+                      .map((clinician, idx) => {
+                        const pct = clinician.scheduled > 0 ? Math.round(clinician.completed / clinician.scheduled * 100) : 0;
+                        const barColor = pct >= 80 ? B.green : pct >= 40 ? B.yellow : pct > 0 ? B.red : '#E5D5D0';
+                        return (
+                          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '220px 100px 100px 100px 1fr', padding: '12px 24px', borderBottom: `1px solid #FAF4F2`, alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: B.black }}>{clinician.name}</div>
+                              <div style={{ fontSize: 10, color: B.lightGray }}>{clinician.patients} patients</div>
+                            </div>
+                            <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 700, color: B.black, fontFamily: "'DM Mono', monospace" }}>{clinician.scheduled}</div>
+                            <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 700, color: clinician.completed > 0 ? B.green : B.lightGray, fontFamily: "'DM Mono', monospace" }}>{clinician.completed}</div>
+                            <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 700, color: barColor, fontFamily: "'DM Mono', monospace" }}>{pct}%</div>
+                            <div style={{ paddingLeft: 16 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <div style={{ flex: 1, height: 6, background: '#F5EDEB', borderRadius: 3 }}>
+                                  <div style={{ height: '100%', width: `${pct}%`, borderRadius: 3, background: barColor, transition: 'width 0.5s ease' }} />
+                                </div>
+                                <span style={{ fontSize: 10, color: B.lightGray, width: 28, textAlign: 'right' }}>{clinician.scheduled}v</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                    {/* Region summary footer */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '220px 100px 100px 100px 1fr', padding: '12px 24px', background: '#FFF5F2', borderTop: `1px solid ${B.border}` }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: B.red }}>REGION {selectedRegion} TOTAL</div>
+                      <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 800, color: B.black, fontFamily: "'DM Mono', monospace" }}>{csvData.regionData[selectedRegion].scheduled}</div>
+                      <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 800, color: B.green, fontFamily: "'DM Mono', monospace" }}>{csvData.regionData[selectedRegion].completed}</div>
+                      <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 800, color: B.red, fontFamily: "'DM Mono', monospace" }}>
+                        {csvData.regionData[selectedRegion].scheduled > 0 ? Math.round(csvData.regionData[selectedRegion].completed / csvData.regionData[selectedRegion].scheduled * 100) : 0}%
+                      </div>
+                      <div />
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         )}
 
         {/* ── TEAM ─────────────────────────────────────────────── */}
