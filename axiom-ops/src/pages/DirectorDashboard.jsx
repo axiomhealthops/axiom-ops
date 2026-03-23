@@ -691,6 +691,7 @@ export default function DirectorDashboard() {
   });
   const [staffFilter, setStaffFilter] = useState('all');
   const [staffSearch, setStaffSearch] = useState('');
+  const [staffSort, setStaffSort] = useState('visits_desc');
   const [editingStaff, setEditingStaff] = useState(null);
   const [censusData, setCensusData] = useState(() => {
     try { const s = localStorage.getItem('axiom_census'); return s ? JSON.parse(s) : null; } catch { return null; }
@@ -848,11 +849,6 @@ export default function DirectorDashboard() {
       return updated;
     });
   };
-  const [staffDirectory, setStaffDirectory] = useState(() => {
-    try { const s = localStorage.getItem('axiom_staff_dir'); return s ? JSON.parse(s) : {}; } catch { return {}; }
-  });
-  const [staffFilter, setStaffFilter] = useState('all');
-  const [staffSort, setStaffSort] = useState('visits_desc');
   const [driveLinks, setDriveLinks] = useState(() => { try { return JSON.parse(localStorage.getItem('axiom_drive_links') || '[]'); } catch { return []; } });
 
   useEffect(() => {
