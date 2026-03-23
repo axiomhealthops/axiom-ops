@@ -1287,6 +1287,410 @@ export default function DirectorDashboard() {
 
 
 
+
+        {/* ── REVENUE ─────────────────────────────────────────── */}
+        {activeTab === 'revenue' && (() => {
+          const avgRate = CFG.avgReimbursement;
+          const weeklyVisitRev = (csvData?.dedupedCount || manualVisits) * avgRate;
+          const revTarget = CFG.revenueTarget;
+          const revPct = Math.min(Math.round(weeklyVisitRev / revTarget * 100), 100);
+          const revGap = Math.max(0, revTarget - weeklyVisitRev);
+          const fmt = (n) => n >= 1000 ? `$${(n/1000).toFixed(1)}K` : `$${n}`;
+
+          const authRiskPatients = hasCensus ? ((censusData.counts.auth_pending||0) + (censusData.counts.active_auth_pending||0)) : 0;
+          const authRiskRev = authRiskPatients * CFG.authRiskVisitsPerWeek * avgRate;
+          const onHoldPatients = hasCensus ? ((censusData.counts.on_hold||0) + (censusData.counts.on_hold_facility||0) + (censusData.counts.on_hold_pt||0) + (censusData.counts.on_hold_md||0)) : 0;
+          const onHoldRev = onHoldPatients * CFG.authRiskVisitsPerWeek * avgRate;
+          const socPending = hasCensus ? (censusData.counts.soc_pending||0) : 0;
+          const waitlistPats = hasCensus ? (censusData.counts.waitlist||0) : 0;
+          const socPotential = socPending * CFG.authRiskVisitsPerWeek * avgRate;
+          const waitlistPotential = waitlistPats * CFG.authRiskVisitsPerWeek * avgRate;
+
+          const getPayerFromRef = (ref) => {
+            const r = (ref || '').toUpperCase();
+            if (r.startsWith('HU')) return 'Humana';
+            if (r.startsWith('CP') || r.startsWith('CAR')) return 'CarePlus';
+            if (r.startsWith('MED')) return 'Medicare/Devoted';
+            if (r.startsWith('DH')) return 'Devoted Health';
+            if (r.startsWith('FHC')) return 'Florida Health Care Plans';
+            if (r.startsWith('AM') || r.startsWith('AC')) return 'Aetna';
+            if (r.startsWith('CIG') || r.startsWith('HCIG')) return 'Cigna';
+            if (r.startsWith('HF')) return 'HealthFirst';
+            if (r.startsWith('PP')) return 'Private Pay (Self)';
+            return 'Other';
+          };
+          const payerCounts = hasCensus ? censusData.patients.reduce((acc, p) => {
+            const key = getPayerFromRef(p.ref);
+            acc[key] = (acc[key]||0) + 1; return acc;
+          }, {}) : {};
+          const totalPayers = Object.values(payerCounts).reduce((s,v)=>s+v,0);
+
+          return (
+            <div>
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>Revenue Dashboard</div>
+                <div style={{ fontSize: 13, color: B.gray }}>Based on {fmt(avgRate)} avg reimbursement · adjust in ⚙️ Settings</div>
+              </div>
+
+              {/* Revenue banner */}
+              <div style={{ background: `linear-gradient(135deg, ${B.darkRed}, ${B.red}, ${B.orange})`, borderRadius: 18, padding: '24px 32px', marginBottom: 24, position: 'relative', overflow: 'hidden', boxShadow: '0 4px 16px rgba(139,26,16,0.2)' }}>
+                <div style={{ position: 'absolute', inset: 0, opacity: 0.06, backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap', position: 'relative' }}>
+                  <div style={{ flex: 1, minWidth: 250 }}>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>Estimated Weekly Revenue</div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+                      <span style={{ fontSize: 44, fontWeight: 800, color: '#fff', fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{fmt(weeklyVisitRev)}</span>
+                      <span style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}>/ {fmt(revTarget)} target</span>
+                    </div>
+                    <div style={{ marginTop: 12, height: 6, background: 'rgba(255,255,255,0.2)', borderRadius: 3 }}>
+                      <div style={{ height: '100%', width: `${revPct}%`, background: '#fff', borderRadius: 3, transition: 'width 0.5s ease' }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 6 }}>
+                      {revPct >= 100 ? '🎯 Revenue target reached' : `${fmt(revGap)} gap to ${fmt(revTarget)} weekly target`}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 20 }}>
+                    {[
+                      { label: 'Per Visit', value: fmt(avgRate) },
+                      { label: 'Visits', value: csvData?.dedupedCount || manualVisits },
+                      { label: 'Pace', value: `${revPct}%` },
+                    ].map((s, i) => (
+                      <div key={s.label} style={{ textAlign: 'center', paddingLeft: i > 0 ? 20 : 0, borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
+                        <div style={{ fontSize: 24, fontWeight: 800, color: '#fff', fontFamily: "'DM Mono', monospace" }}>{s.value}</div>
+                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 3 }}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 4 cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
+                {[
+                  { label: 'Est. Weekly Revenue', value: fmt(weeklyVisitRev), sub: `${csvData?.dedupedCount || manualVisits} visits × ${fmt(avgRate)}`, color: B.green, icon: '💰' },
+                  { label: 'Auth Risk Revenue', value: fmt(authRiskRev), sub: `${authRiskPatients} patients blocked`, color: B.yellow, icon: '🔒', alert: authRiskPatients > 10 ? 'High risk — action needed' : null },
+                  { label: 'On Hold Paused Rev', value: fmt(onHoldRev), sub: `${onHoldPatients} patients on hold`, color: '#6B7280', icon: '⏸️' },
+                  { label: 'SOC + Waitlist Pipeline', value: fmt(socPotential + waitlistPotential), sub: `${socPending + waitlistPats} patients ready to activate`, color: '#0284C7', icon: '📈' },
+                ].map(c => (
+                  <div key={c.label} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 14, padding: '18px 20px', position: 'relative', overflow: 'hidden', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${c.color}, transparent)` }} />
+                    <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>{c.icon} {c.label}</div>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: c.color, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{c.value}</div>
+                    <div style={{ fontSize: 11, color: B.gray, marginTop: 6 }}>{c.sub}</div>
+                    {c.alert && <div style={{ fontSize: 11, color: B.danger, marginTop: 4, fontWeight: 600 }}>{c.alert}</div>}
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                {/* Revenue by region */}
+                <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '22px 24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: B.black, marginBottom: 16 }}>📊 Revenue by Region (Est.)</div>
+                  {csvData?.regionData ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {Object.entries(csvData.regionData).sort(([,a],[,b]) => b.scheduled - a.scheduled).map(([region, data]) => {
+                        const regionRev = data.scheduled * avgRate;
+                        const maxRev = Math.max(...Object.values(csvData.regionData).map(d => d.scheduled * avgRate));
+                        const pct = Math.round(regionRev / maxRev * 100);
+                        return (
+                          <div key={region}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: B.black }}>Region {region}</span>
+                              <div style={{ display: 'flex', gap: 12 }}>
+                                <span style={{ fontSize: 11, color: B.gray }}>{data.scheduled} visits</span>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: B.red, fontFamily: 'monospace' }}>{fmt(regionRev)}</span>
+                              </div>
+                            </div>
+                            <div style={{ height: 5, background: '#F5EDEB', borderRadius: 3 }}>
+                              <div style={{ height: '100%', width: `${pct}%`, borderRadius: 3, background: `linear-gradient(90deg, ${B.darkRed}, ${B.orange})`, transition: 'width 0.5s ease' }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '24px', color: B.lightGray, fontSize: 13 }}>Upload Pariox data to see regional revenue breakdown</div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {/* Payer mix */}
+                  <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '22px 24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: B.black, marginBottom: 14 }}>🏥 Payer Mix</div>
+                    {Object.keys(payerCounts).length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {Object.entries(payerCounts).sort(([,a],[,b]) => b-a).map(([payer, count]) => {
+                          const pct = Math.round(count / totalPayers * 100);
+                          const payerColor = payer === 'Humana' ? '#0066CC' : payer === 'CarePlus' ? '#009B77' : payer === 'Medicare/Devoted' ? '#1565C0' : payer === 'Devoted Health' ? '#1976D2' : payer === 'Florida Health Care Plans' ? '#2E7D32' : payer === 'Aetna' ? '#7B1FA2' : payer === 'Cigna' ? '#E65100' : payer === 'HealthFirst' ? '#00838F' : B.gray;
+                          return (
+                            <div key={payer}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                <span style={{ fontSize: 12, color: B.black }}>{payer}</span>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: payerColor, fontFamily: 'monospace' }}>{count} ({pct}%)</span>
+                              </div>
+                              <div style={{ height: 4, background: '#F5EDEB', borderRadius: 2 }}>
+                                <div style={{ height: '100%', width: `${pct}%`, borderRadius: 2, background: payerColor }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div style={{ borderTop: `1px solid ${B.border}`, paddingTop: 8, marginTop: 4, display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ fontSize: 11, color: B.gray }}>Total insured</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: B.black }}>{totalPayers}</span>
+                        </div>
+                        {(() => {
+                          const top = Object.entries(payerCounts).sort(([,a],[,b])=>b-a)[0];
+                          if (top && top[1]/totalPayers > 0.4) return (
+                            <div style={{ padding: '8px 12px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: 11, color: '#92400E' }}>
+                              ⚠️ {top[0]} = {Math.round(top[1]/totalPayers*100)}% — single payer concentration risk
+                            </div>
+                          );
+                          return null;
+                        })()}
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: 'center', color: B.lightGray, fontSize: 13 }}>Upload census to see payer mix</div>
+                    )}
+                  </div>
+
+                  {/* Revenue recovery */}
+                  <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 16, padding: '20px 24px' }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: B.green, marginBottom: 12 }}>📈 Revenue Recovery Opportunity</div>
+                    {[
+                      { label: 'Resolve auth blocks', patients: authRiskPatients },
+                      { label: 'Activate SOC pending', patients: socPending },
+                      { label: 'Convert waitlist', patients: waitlistPats },
+                      { label: 'Return on-hold patients', patients: onHoldPatients },
+                    ].map(r => (
+                      <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontSize: 12, color: B.black }}>{r.label} ({r.patients})</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: B.green, fontFamily: 'monospace' }}>+{fmt(r.patients * CFG.authRiskVisitsPerWeek * avgRate)}/wk</span>
+                      </div>
+                    ))}
+                    <div style={{ borderTop: '1px solid #BBF7D0', paddingTop: 10, marginTop: 4, display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: B.green }}>Total potential uplift</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: B.green, fontFamily: 'monospace' }}>+{fmt((authRiskPatients + socPending + waitlistPats + onHoldPatients) * CFG.authRiskVisitsPerWeek * avgRate)}/wk</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── SCORECARD ────────────────────────────────────────── */}
+        {activeTab === 'scorecard' && (() => {
+          const hasCensusVal = hasCensus ? censusData.activeCensus : (totalPatients || 0);
+          const kpis = [
+            { label: 'Weekly Visits', value: manualVisits, target: CFG.visitTarget, pct: Math.round(manualVisits/CFG.visitTarget*100), status: manualVisits >= CFG.visitTarget ? 'green' : manualVisits >= CFG.visitTarget*0.8 ? 'yellow' : 'red', sub: `${CFG.visitTarget - manualVisits > 0 ? (CFG.visitTarget - manualVisits) + ' below target' : 'Target met ✓'}` },
+            { label: 'Active Census', value: hasCensusVal, target: `${CFG.activeCensusTarget}+`, pct: Math.min(Math.round(hasCensusVal/CFG.activeCensusTarget*100),100), status: hasCensusVal >= CFG.activeCensusTarget ? 'green' : hasCensusVal >= CFG.activeCensusTarget*0.8 ? 'yellow' : 'red', sub: `${CFG.activeCensusTarget - hasCensusVal > 0 ? (CFG.activeCensusTarget - hasCensusVal) + ' below target' : 'Target met ✓'}` },
+            { label: 'Visit Completion Rate', value: `${csvData?.completedVisits > 0 ? Math.round(csvData.completedVisits/(csvData.dedupedCount||1)*100) : 0}%`, target: '90%+', pct: csvData?.completedVisits > 0 ? Math.min(Math.round(csvData.completedVisits/(csvData.dedupedCount||1)*100/90*100),100) : 0, status: (csvData?.completedVisits||0)/(csvData?.dedupedCount||1) >= 0.9 ? 'green' : (csvData?.completedVisits||0)/(csvData?.dedupedCount||1) >= 0.7 ? 'yellow' : 'red', sub: `${csvData?.completedVisits||0} of ${csvData?.dedupedCount||0} completed` },
+            { label: 'Auth Expiry Risk', value: totalAuthsExpiring, target: '0', pct: totalAuthsExpiring === 0 ? 100 : 0, status: totalAuthsExpiring === 0 ? 'green' : totalAuthsExpiring <= 3 ? 'yellow' : 'red', sub: 'Auths expiring in 7 days' },
+            { label: 'Morning Reports', value: `${reportsIn}/4`, target: '4/4', pct: Math.round(reportsIn/4*100), status: reportsIn === 4 ? 'green' : reportsIn >= 2 ? 'yellow' : 'red', sub: `${4 - reportsIn} missing` },
+            { label: 'Missed Visits', value: totalMissedVisits, target: '<5/day', pct: totalMissedVisits === 0 ? 100 : Math.max(0,100-totalMissedVisits*20), status: totalMissedVisits === 0 ? 'green' : totalMissedVisits < 5 ? 'yellow' : 'red', sub: 'Cancellations this week' },
+            { label: 'Expansion Progress', value: `${Math.round(Object.values(expansionData).reduce((s,e)=>s+(e.credentialing||0),0)/3)}%`, target: 'Q3 Live', pct: Math.round(Object.values(expansionData).reduce((s,e)=>s+(e.credentialing||0),0)/3), status: Object.values(expansionData).some(e=>e.credentialing>=80) ? 'green' : Object.values(expansionData).some(e=>e.credentialing>=40) ? 'yellow' : 'red', sub: 'Avg credentialing across GA/TX/NC' },
+          ];
+          const statusColors = { green: B.green, yellow: B.yellow, red: B.danger };
+          const statusBg = { green: '#F0FDF4', yellow: '#FFFBEB', red: '#FEF2F2' };
+
+          const execReport = `AXIOMHEALTH — WEEKLY EXECUTIVE REPORT
+Week of ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}
+Prepared by: Director of Operations
+
+OPERATIONAL SUMMARY
+• Weekly Visits: ${manualVisits} / ${CFG.visitTarget} target (${Math.round(manualVisits/CFG.visitTarget*100)}%)
+• Active Census: ${hasCensusVal} / ${CFG.activeCensusTarget} target
+• Visit Completion Rate: ${csvData?.completedVisits > 0 ? Math.round(csvData.completedVisits/(csvData.dedupedCount||1)*100) : 0}%
+• Morning Reports Submitted: ${reportsIn}/4
+• Auth Expiry Risk: ${totalAuthsExpiring} auths expiring in 7 days
+• Missed Visits This Week: ${totalMissedVisits}
+
+EXPANSION STATUS
+• Georgia: ${expansionData.GA?.credentialing||0}% credentialed | ${expansionData.GA?.staffHired||0}/${expansionData.GA?.staffNeeded||4} staff hired | Target: ${expansionData.GA?.firstPatientDate||'TBD'}
+• Texas: ${expansionData.TX?.credentialing||0}% credentialed | ${expansionData.TX?.staffHired||0}/${expansionData.TX?.staffNeeded||6} staff hired | Target: ${expansionData.TX?.firstPatientDate||'TBD'}
+• North Carolina: ${expansionData.NC?.credentialing||0}% credentialed | ${expansionData.NC?.staffHired||0}/${expansionData.NC?.staffNeeded||3} staff hired | Target: ${expansionData.NC?.firstPatientDate||'TBD'}`;
+
+          return (
+            <div>
+              <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>Operations Scorecard</div>
+                  <div style={{ fontSize: 13, color: B.gray }}>Key performance indicators — week of {new Date().toLocaleDateString('en-US',{month:'long',day:'numeric'})}</div>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
+                {kpis.map(kpi => (
+                  <div key={kpi.label} style={{ background: statusBg[kpi.status], border: `1px solid ${kpi.status === 'green' ? '#BBF7D0' : kpi.status === 'yellow' ? '#FDE68A' : '#FECACA'}`, borderRadius: 14, padding: '18px 20px', position: 'relative', overflow: 'hidden' }}>
+                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: statusColors[kpi.status] }} />
+                    <div style={{ fontSize: 11, color: statusColors[kpi.status], fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>{kpi.label}</div>
+                    <div style={{ fontSize: 30, fontWeight: 800, color: statusColors[kpi.status], fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{kpi.value}</div>
+                    <div style={{ fontSize: 11, color: B.gray, marginTop: 4 }}>Target: {kpi.target}</div>
+                    <div style={{ marginTop: 8, height: 4, background: 'rgba(0,0,0,0.08)', borderRadius: 2 }}>
+                      <div style={{ height: '100%', width: `${kpi.pct}%`, borderRadius: 2, background: statusColors[kpi.status], transition: 'width 0.5s ease' }} />
+                    </div>
+                    <div style={{ fontSize: 10, color: statusColors[kpi.status], marginTop: 4, opacity: 0.8 }}>{kpi.sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Executive report */}
+              <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '22px 24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: B.black }}>📋 Weekly Executive Report</div>
+                  <button onClick={() => navigator.clipboard.writeText(execReport)} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 8, color: '#fff', padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Copy to Clipboard</button>
+                </div>
+                <pre style={{ fontSize: 12, color: B.black, background: '#FBF7F6', borderRadius: 10, padding: '16px', whiteSpace: 'pre-wrap', lineHeight: 1.7, fontFamily: "'DM Mono', monospace", border: `1px solid ${B.border}` }}>{execReport}</pre>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── EXPANSION ────────────────────────────────────────── */}
+        {activeTab === 'expansion' && (() => {
+          const stateColors = { GA: '#2E7D32', TX: '#1565C0', NC: '#7B1FA2' };
+          return (
+            <div>
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>Expansion Tracker</div>
+                <div style={{ fontSize: 13, color: B.gray }}>Georgia · Texas · North Carolina — Q3 2026 targets</div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
+                {Object.entries(expansionData).map(([state, data]) => {
+                  const color = stateColors[state];
+                  const isEditing = editingExpansion === state;
+                  return (
+                    <div key={state} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, overflow: 'hidden', boxShadow: '0 1px 6px rgba(139,26,16,0.06)' }}>
+                      <div style={{ background: color, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: '#fff' }}>{data.state}</div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>{data.status}</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 28, fontWeight: 800, color: '#fff', fontFamily: "'DM Mono', monospace" }}>{data.credentialing}%</div>
+                          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)' }}>credentialed</div>
+                        </div>
+                      </div>
+                      <div style={{ padding: '16px 20px' }}>
+                        {[
+                          { label: 'Staff Hired', value: `${data.staffHired} / ${data.staffNeeded}` },
+                          { label: 'First Patient Target', value: data.firstPatientDate },
+                          { label: 'Weekly Visit Target', value: `${data.weeklyVisitTarget} visits/wk` },
+                          { label: 'Current Visits', value: data.currentVisits || 0 },
+                        ].map(f => (
+                          <div key={f.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, paddingBottom: 8, borderBottom: `1px solid ${B.border}` }}>
+                            <span style={{ fontSize: 12, color: B.gray }}>{f.label}</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: B.black }}>{f.value}</span>
+                          </div>
+                        ))}
+                        {!isEditing ? (
+                          <button onClick={() => setEditingExpansion(state)} style={{ width: '100%', marginTop: 8, background: 'none', border: `1px solid ${color}`, borderRadius: 8, color, padding: '8px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Edit</button>
+                        ) : (
+                          <div style={{ marginTop: 8 }}>
+                            {[
+                              { label: 'Credentialing %', key: 'credentialing', type: 'number' },
+                              { label: 'Staff Hired', key: 'staffHired', type: 'number' },
+                              { label: 'Staff Needed', key: 'staffNeeded', type: 'number' },
+                              { label: 'First Patient Date', key: 'firstPatientDate', type: 'date' },
+                              { label: 'Weekly Visit Target', key: 'weeklyVisitTarget', type: 'number' },
+                              { label: 'Notes', key: 'notes', type: 'text' },
+                            ].map(f => (
+                              <div key={f.key} style={{ marginBottom: 8 }}>
+                                <label style={{ fontSize: 10, color: B.gray, display: 'block', marginBottom: 3 }}>{f.label}</label>
+                                <input type={f.type} value={data[f.key] || ''} onChange={e => { const v = f.type === 'number' ? (parseInt(e.target.value)||0) : e.target.value; setExpansionData(p => { const n = {...p, [state]: {...p[state], [f.key]: v}}; try{localStorage.setItem('axiom_expansion',JSON.stringify(n))}catch(e){}; return n; }); }} style={{ width: '100%', padding: '6px 10px', border: `1px solid ${B.border}`, borderRadius: 6, fontSize: 12, fontFamily: 'inherit', color: B.black, outline: 'none' }} />
+                              </div>
+                            ))}
+                            <button onClick={() => setEditingExpansion(null)} style={{ width: '100%', background: color, border: 'none', borderRadius: 8, color: '#fff', padding: '8px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Save</button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 14, padding: '18px 24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: B.black, marginBottom: 12 }}>Combined Expansion Metrics</div>
+                <div style={{ display: 'flex', gap: 24 }}>
+                  {[
+                    { label: 'Combined Weekly Target', value: CFG.visitTarget + Object.values(expansionData).reduce((s,e)=>s+(e.weeklyVisitTarget||0),0), color: B.darkRed },
+                    { label: 'Total Staff Needed', value: Object.values(expansionData).reduce((s,e)=>s+(e.staffNeeded||0),0), color: B.red },
+                    { label: 'Total Staff Hired', value: Object.values(expansionData).reduce((s,e)=>s+(e.staffHired||0),0), color: B.orange },
+                    { label: 'Avg Credentialing', value: `${Math.round(Object.values(expansionData).reduce((s,e)=>s+(e.credentialing||0),0)/3)}%`, color: B.green },
+                  ].map(m => (
+                    <div key={m.label} style={{ flex: 1, textAlign: 'center', padding: '14px', background: '#FBF7F6', borderRadius: 10, border: `1px solid ${B.border}` }}>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: m.color, fontFamily: "'DM Mono', monospace" }}>{m.value}</div>
+                      <div style={{ fontSize: 10, color: B.lightGray, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 4 }}>{m.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── ADMIN SETTINGS ───────────────────────────────────── */}
+        {activeTab === '⚙️' && (() => {
+          const draft = settingsDraft || CFG;
+          return (
+            <div style={{ maxWidth: 720, margin: '0 auto' }}>
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>⚙️ Director Settings</div>
+                <div style={{ fontSize: 13, color: B.gray }}>Edit dashboard targets, rates, and thresholds — no code required</div>
+              </div>
+              {!adminUnlocked ? (
+                <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '40px', textAlign: 'center', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                  <div style={{ fontSize: 32, marginBottom: 12 }}>🔐</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: B.black, marginBottom: 6 }}>Director Access Required</div>
+                  <div style={{ fontSize: 13, color: B.gray, marginBottom: 24 }}>Enter your 4-digit PIN to edit settings</div>
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'center', alignItems: 'center' }}>
+                    <input type="password" maxLength={4} value={adminPinInput}
+                      onChange={e => { setAdminPinInput(e.target.value); setAdminPinError(false); }}
+                      onKeyDown={e => { if (e.key === 'Enter') { if (adminPinInput === CFG.adminPin) { setAdminUnlocked(true); setSettingsDraft({...CFG}); setAdminPinInput(''); } else { setAdminPinError(true); setAdminPinInput(''); } }}}
+                      placeholder="PIN" style={{ width: 100, padding: '12px', textAlign: 'center', fontSize: 20, letterSpacing: '0.3em', border: `2px solid ${adminPinError ? B.danger : B.border}`, borderRadius: 10, outline: 'none', fontFamily: "'DM Mono', monospace" }} />
+                    <button onClick={() => { if (adminPinInput === CFG.adminPin) { setAdminUnlocked(true); setSettingsDraft({...CFG}); setAdminPinInput(''); } else { setAdminPinError(true); setAdminPinInput(''); }}}
+                      style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 10, color: '#fff', padding: '12px 20px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Unlock</button>
+                  </div>
+                  {adminPinError && <div style={{ color: B.danger, fontSize: 12, marginTop: 10 }}>Incorrect PIN</div>}
+                  <div style={{ fontSize: 11, color: B.lightGray, marginTop: 16 }}>Default PIN: 1234</div>
+                </div>
+              ) : (
+                <div>
+                  {[
+                    { section: '📅 Visit Targets', fields: [{ key: 'visitTarget', label: 'Weekly Visit Target', sub: 'Sustainability threshold', type: 'number', suffix: 'visits/wk' }] },
+                    { section: '💰 Revenue', fields: [{ key: 'revenueTarget', label: 'Weekly Revenue Target', sub: 'Company weekly goal', type: 'number', prefix: '$', suffix: '/week' }, { key: 'avgReimbursement', label: 'Avg Reimbursement Per Visit', sub: 'Used for all revenue estimates', type: 'number', prefix: '$', suffix: '/visit' }, { key: 'authRiskVisitsPerWeek', label: 'Avg Visits Per Patient / Week', sub: 'For risk calculations', type: 'number', suffix: 'visits/wk' }] },
+                    { section: '👥 Census Targets', fields: [{ key: 'activeCensusTarget', label: 'Active Census Target', sub: 'Active + Active-Auth Pending goal', type: 'number', suffix: 'patients' }, { key: 'coordinatorCap', label: 'Coordinator Caseload Cap', sub: 'Max patients per coordinator', type: 'number', suffix: 'patients' }] },
+                    { section: '🔐 Security', fields: [{ key: 'adminPin', label: 'Director PIN', sub: 'Change your 4-digit settings PIN', type: 'text', maxLength: 4 }] },
+                  ].map(section => (
+                    <div key={section.section} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '22px 24px', marginBottom: 16, boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: B.black, marginBottom: 16 }}>{section.section}</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        {section.fields.map(field => (
+                          <div key={field.key} style={{ display: 'grid', gridTemplateColumns: '1fr 200px', gap: 16, alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: B.black }}>{field.label}</div>
+                              <div style={{ fontSize: 11, color: B.gray, marginTop: 2 }}>{field.sub}</div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              {field.prefix && <span style={{ fontSize: 13, color: B.gray }}>{field.prefix}</span>}
+                              <input type={field.type} value={draft[field.key]} maxLength={field.maxLength}
+                                onChange={e => setSettingsDraft(prev => ({ ...prev, [field.key]: field.type === 'number' ? (parseFloat(e.target.value)||0) : e.target.value }))}
+                                style={{ flex: 1, padding: '10px 12px', border: `1.5px solid ${B.border}`, borderRadius: 8, fontSize: 14, fontFamily: "'DM Mono', monospace", fontWeight: 700, color: B.red, outline: 'none', textAlign: 'right' }} />
+                              {field.suffix && <span style={{ fontSize: 11, color: B.gray, whiteSpace: 'nowrap' }}>{field.suffix}</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                    <button onClick={() => { setAdminUnlocked(false); setSettingsDraft(null); }} style={{ background: 'none', border: `1px solid ${B.border}`, borderRadius: 10, color: B.gray, padding: '12px 20px', fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+                    <button onClick={() => { saveSettings(draft); setAdminUnlocked(false); setSettingsDraft(null); }} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 10, color: '#fff', padding: '12px 24px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', boxShadow: '0 2px 8px rgba(217,79,43,0.3)' }}>Save Settings</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* ── STAFF DIRECTORY ─────────────────────────────────── */}
         {activeTab === 'staff' && (() => {
           const FT_MIN = 24;
