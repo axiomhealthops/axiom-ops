@@ -1186,7 +1186,7 @@ export default function DirectorDashboard() {
                            color: selectedCensusRegion === r ? B.red : B.gray,
                            fontSize: 11, fontWeight: selectedCensusRegion === r ? 700 : 400,
                            cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s'
-                         }}>{r === 'all' ? 'All' : `R${r}`}</button>
+                         }}>{r === 'all' ? 'All' : r}</button>
                        ))}
                        {!hasCensus && <button onClick={() => setActiveTab('data')} style={{ background: 'none', border: `1px solid ${B.border}`, borderRadius: 7, color: B.gray, padding: '5px 10px', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' }}>Upload Census →</button>}
                      </div>
@@ -1717,52 +1717,153 @@ export default function DirectorDashboard() {
         {activeTab === 'reports' && (
           <div>
             <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>Today's Reports</div>
-              <div style={{ fontSize: 13, color: B.gray }}>Full detail submitted by coordinators</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>Today's Reports</div>
+              <div style={{ fontSize: 13, color: B.gray }}>Full EOD submissions from coordinators — updates in real time</div>
             </div>
             {coordinators.map(c => {
-              const morning = morningReports.find(r => r.coordinator_id === c.id);
               const eod = eodReports.find(r => r.coordinator_id === c.id);
+              const morning = morningReports.find(r => r.coordinator_id === c.id);
               const color = COORD_COLORS[c.name] || B.red;
+              let fullData = null;
+              if (eod?.notes) { try { fullData = JSON.parse(eod.notes); } catch(e) {} }
+
               return (
-                <div key={c.id} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '22px 24px', marginBottom: 16, position: 'relative', overflow: 'hidden', boxShadow: '0 1px 6px rgba(139,26,16,0.06)' }}>
+                <div key={c.id} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '20px 24px', marginBottom: 16, position: 'relative', overflow: 'hidden', boxShadow: '0 1px 6px rgba(139,26,16,0.06)' }}>
                   <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: color }} />
+
+                  {/* Header */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <div style={{ width: 3, height: 36, background: color, borderRadius: 2 }} />
                       <div>
-                        <div style={{ fontWeight: 800, fontSize: 16 }}>{c.name}</div>
+                        <div style={{ fontWeight: 800, fontSize: 16, color: B.black }}>{c.name}</div>
                         <div style={{ fontSize: 11, color: B.lightGray }}>{c.region}</div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      {[{ label: 'Morning', data: morning }, { label: 'EOD', data: eod }].map(({ label, data }) => (
-                        <div key={label} style={{ padding: '5px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: data ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${data ? '#BBF7D0' : '#FECACA'}`, color: data ? B.green : B.danger }}>{label}: {data ? '✓' : 'Missing'}</div>
-                      ))}
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      {fullData?.submitTime && <span style={{ fontSize: 11, color: B.lightGray }}>Submitted {fullData.submitTime}</span>}
+                      <div style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: eod ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${eod ? '#BBF7D0' : '#FECACA'}`, color: eod ? B.green : B.danger }}>
+                        {eod ? '✓ Report Received' : '⚠ Not Submitted'}
+                      </div>
+                      {eod && !eod.report_submitted_on_time && (
+                        <div style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FFFBEB', border: '1px solid #FDE68A', color: B.yellow }}>Late</div>
+                      )}
                     </div>
                   </div>
-                  {morning ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-                      {[
-                        { label: 'Patients', value: morning.active_patients, color: B.red },
-                        { label: 'Visits Scheduled', value: morning.visits_scheduled, color: B.black },
-                        { label: 'Auths Pending', value: morning.auths_pending, color: B.yellow },
-                        { label: 'Auths Expiring', value: morning.auths_expiring_7d, color: morning.auths_expiring_7d > 2 ? B.danger : B.yellow },
-                        { label: 'New Referrals', value: morning.new_referrals, color: B.darkRed },
-                        { label: 'Open Tasks', value: morning.tasks_open, color: B.orange },
-                        { label: 'On Time', value: morning.report_submitted_on_time ? 'Yes' : 'Late', color: morning.report_submitted_on_time ? B.green : B.danger },
-                      ].map(m => (
-                        <div key={m.label} style={{ background: '#FBF7F6', borderRadius: 8, padding: '10px 14px', border: `1px solid ${B.border}` }}>
-                          <div style={{ fontSize: 10, color: B.lightGray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>{m.label}</div>
-                          <div style={{ fontSize: 18, fontWeight: 700, color: m.color, fontFamily: "'DM Mono', monospace" }}>{m.value}</div>
+
+                  {!eod && (
+                    <div style={{ padding: '20px', background: '#FEF2F2', borderRadius: 10, textAlign: 'center', color: B.lightGray, fontSize: 13 }}>No EOD report submitted today</div>
+                  )}
+
+                  {eod && fullData && (
+                    <div>
+                      {/* Checklist completion */}
+                      {fullData.checklist && (
+                        <div style={{ marginBottom: 16, background: '#FBF7F6', borderRadius: 10, padding: '12px 16px', border: `1px solid ${B.border}` }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: B.black, marginBottom: 8 }}>Daily Checklist</div>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            {['pariox_comments','zero_one_report','missed_cancelled','evals_scheduled','activation_review'].map(id => {
+                              const labels = { pariox_comments: 'Pariox Comments', zero_one_report: '0-1 Report', missed_cancelled: 'Missed/Cancelled', evals_scheduled: 'Evals Checked', activation_review: 'Activation Review' };
+                              const done = !!fullData.checklist[id];
+                              return (
+                                <div key={id} style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: done ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${done ? '#BBF7D0' : '#FECACA'}`, color: done ? B.green : B.danger }}>
+                                  {done ? '✓' : '✗'} {labels[id]}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  ) : <div style={{ padding: '16px', background: '#FEF2F2', borderRadius: 10, fontSize: 13, color: B.lightGray, textAlign: 'center' }}>Morning report not yet submitted</div>}
-                  {eod?.top_priorities_tomorrow && (
-                    <div style={{ marginTop: 12, padding: '12px 16px', background: '#FFF5F2', borderRadius: 8, borderLeft: `3px solid #FDDDD5` }}>
-                      <div style={{ fontSize: 10, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>Tomorrow's Priorities</div>
-                      <div style={{ fontSize: 12, color: B.black, whiteSpace: 'pre-line', lineHeight: 1.7 }}>{eod.top_priorities_tomorrow}</div>
+                      )}
+
+                      {/* Key metrics grid */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 14 }}>
+                        {[
+                          { label: 'Patients', value: fullData.totalPatients || 0, color: B.red },
+                          { label: 'Contacted', value: fullData.patientsContactedToday || 0, color: B.orange },
+                          { label: 'Charts Updated', value: fullData.chartsUpdatedTotal || 0, color: B.blue },
+                          { label: 'Chart Rate', value: `${fullData.chartsUpdatedTotal > 0 ? Math.round(((fullData.chartsUpdatedTotal||0)-(fullData.lateCharts||0)-(fullData.chartErrors||0))/(fullData.chartsUpdatedTotal)*100) : 0}%`, color: B.green },
+                          { label: 'Outbound Calls', value: fullData.outboundCalls || 0, color: B.blue },
+                          { label: 'Follow-Ups Done', value: fullData.followUpsCompleted || 0, color: B.green },
+                          { label: 'Follow-Ups Due', value: fullData.followUpsDue || 0, color: fullData.followUpsDue > 0 ? B.danger : B.lightGray },
+                          { label: 'Escalations', value: fullData.escalationsRaised || 0, color: fullData.escalationsRaised > 0 ? B.danger : B.lightGray },
+                        ].map(m => (
+                          <div key={m.label} style={{ background: '#FBF7F6', borderRadius: 8, padding: '10px', textAlign: 'center', border: `1px solid ${B.border}` }}>
+                            <div style={{ fontSize: 18, fontWeight: 800, color: m.color, fontFamily: "'DM Mono', monospace" }}>{m.value}</div>
+                            <div style={{ fontSize: 9, color: B.lightGray, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 2 }}>{m.label}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Activation results */}
+                      {(fullData.waitlistActioned + fullData.socPendingActioned + fullData.onHoldActioned + fullData.authPendingActioned) > 0 && (
+                        <div style={{ marginBottom: 14, background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: '12px 16px' }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: B.green, marginBottom: 8 }}>🔄 Activation Review</div>
+                          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                            {[
+                              { label: 'Waitlist', val: fullData.waitlistActioned },
+                              { label: 'SOC Pending', val: fullData.socPendingActioned },
+                              { label: 'On Hold', val: fullData.onHoldActioned },
+                              { label: 'Auth Pending', val: fullData.authPendingActioned },
+                            ].map(a => a.val > 0 && (
+                              <div key={a.label} style={{ fontSize: 12, color: B.green }}>
+                                <span style={{ fontWeight: 800, fontFamily: 'monospace' }}>{a.val}</span> {a.label}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Escalation log */}
+                      {fullData.escalationLog?.some(e => e.patient) && (
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: B.danger, marginBottom: 8 }}>🚨 Escalation Log</div>
+                          {fullData.escalationLog.filter(e => e.patient).map((e, i) => (
+                            <div key={i} style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '10px 12px', marginBottom: 6, fontSize: 12 }}>
+                              <span style={{ fontWeight: 700, color: B.black }}>{e.patient}</span>
+                              <span style={{ color: B.lightGray, margin: '0 6px' }}>·</span>
+                              <span style={{ color: B.gray }}>{e.issue}</span>
+                              {e.action && <><span style={{ color: B.lightGray, margin: '0 6px' }}>→</span><span style={{ color: B.black }}>{e.action}</span></>}
+                              <span style={{ float: 'right', padding: '1px 8px', borderRadius: 10, fontSize: 10, fontWeight: 700, background: e.status === 'Resolved' ? '#F0FDF4' : '#FFFBEB', color: e.status === 'Resolved' ? B.green : B.yellow }}>{e.status}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Narrative */}
+                      {(fullData.accomplishment1 || fullData.blockers || fullData.patientsAttentionTomorrow) && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                          {fullData.accomplishment1 && (
+                            <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, padding: '12px' }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: B.blue, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Accomplishments</div>
+                              {[fullData.accomplishment1, fullData.accomplishment2, fullData.accomplishment3].filter(Boolean).map((a, i) => (
+                                <div key={i} style={{ fontSize: 12, color: B.black, marginBottom: 3 }}>• {a}</div>
+                              ))}
+                            </div>
+                          )}
+                          {fullData.patientsAttentionTomorrow && (
+                            <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '12px' }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: B.yellow, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Attention Tomorrow</div>
+                              <div style={{ fontSize: 12, color: B.black, whiteSpace: 'pre-line' }}>{fullData.patientsAttentionTomorrow}</div>
+                            </div>
+                          )}
+                          {fullData.blockers && (
+                            <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px', gridColumn: 'span 2' }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: B.danger, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Blockers</div>
+                              <div style={{ fontSize: 12, color: B.black }}>{fullData.blockers}</div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Self rating */}
+                      {fullData.productivityRating && (
+                        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 11, color: B.lightGray }}>Self-rated productivity:</span>
+                          <div style={{ background: fullData.productivityRating >= 8 ? '#F0FDF4' : fullData.productivityRating >= 6 ? '#FFFBEB' : '#FEF2F2', border: `1px solid ${fullData.productivityRating >= 8 ? '#BBF7D0' : fullData.productivityRating >= 6 ? '#FDE68A' : '#FECACA'}`, borderRadius: 20, padding: '2px 10px', fontSize: 13, fontWeight: 800, color: fullData.productivityRating >= 8 ? B.green : fullData.productivityRating >= 6 ? B.yellow : B.danger, fontFamily: 'monospace' }}>
+                            {fullData.productivityRating}/10
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1770,887 +1871,6 @@ export default function DirectorDashboard() {
             })}
           </div>
         )}
-
-
-        {/* ── SCORECARD ───────────────────────────────────────── */}
-        {activeTab === 'scorecard' && (() => {
-          const kpis = [
-            {
-              label: 'Weekly Visits', value: manualVisits, target: CFG.visitTarget,
-              pct: Math.round(manualVisits/CFG.visitTarget*100),
-              status: manualVisits >= CFG.visitTarget ? 'green' : manualVisits >= CFG.visitTarget*0.8 ? 'yellow' : 'red',
-              sub: `${CFG.visitTarget - manualVisits > 0 ? (CFG.visitTarget - manualVisits) + ' below target' : 'Target met ✓'}`,
-              icon: '📅'
-            },
-            {
-              label: 'Active Census', value: hasCensus ? censusData.activeCensus : (totalPatients || '—'), target: `${CFG.activeCensusTarget}+`,
-              pct: hasCensus ? Math.min(Math.round(censusData.activeCensus/CFG.activeCensusTarget*100),100) : (totalPatients ? Math.min(Math.round(totalPatients/CFG.activeCensusTarget*100),100) : 0),
-              status: (hasCensus ? censusData.activeCensus : totalPatients) >= CFG.activeCensusTarget ? 'green' : (hasCensus ? censusData.activeCensus : totalPatients) >= CFG.activeCensusTarget*0.8 ? 'yellow' : 'red',
-              sub: totalPatients ? `${totalPatients} active patients` : 'Submit morning reports',
-              icon: '👥'
-            },
-            {
-              label: 'Visit Completion Rate', value: totalScheduled > 0 ? `${Math.round(totalCompleted/totalScheduled*100)}%` : '—', target: '90%+',
-              pct: totalScheduled > 0 ? Math.round(totalCompleted/totalScheduled*100) : 0,
-              status: totalScheduled > 0 && (totalCompleted/totalScheduled) >= 0.9 ? 'green' : totalScheduled > 0 && (totalCompleted/totalScheduled) >= 0.75 ? 'yellow' : 'red',
-              sub: `${totalCompleted} of ${totalScheduled} visits completed`,
-              icon: '✅'
-            },
-            {
-              label: 'Auth Expiry Risk', value: totalAuthsExpiring, target: '0',
-              pct: Math.max(0, 100 - (totalAuthsExpiring * 10)),
-              status: totalAuthsExpiring === 0 ? 'green' : totalAuthsExpiring <= 3 ? 'yellow' : 'red',
-              sub: `${totalAuthsExpiring} auths expiring within 7 days`,
-              icon: '⏰'
-            },
-            {
-              label: 'Morning Reports', value: `${reportsIn}/${coordinators.length}`, target: `${coordinators.length}/${coordinators.length}`,
-              pct: coordinators.length > 0 ? Math.round(reportsIn/coordinators.length*100) : 0,
-              status: reportsIn === coordinators.length ? 'green' : reportsIn >= coordinators.length*0.75 ? 'yellow' : 'red',
-              sub: reportsIn < coordinators.length ? `${coordinators.length - reportsIn} coordinators not reporting` : 'All reports received',
-              icon: '📊'
-            },
-            {
-              label: 'Missed Visits', value: totalMissed, target: '< 5/day',
-              pct: Math.max(0, 100 - (totalMissed * 10)),
-              status: totalMissed <= 2 ? 'green' : totalMissed <= 5 ? 'yellow' : 'red',
-              sub: totalMissed > 0 ? `${totalMissed} visits need same-day reschedule` : 'No missed visits today',
-              icon: '⚠️'
-            },
-            {
-              label: 'Expansion Progress', value: '3 States', target: 'Live by Q3',
-              pct: Math.round((Object.values(expansionData).reduce((s,e) => s + e.credentialing, 0) / (Object.keys(expansionData).length * 100)) * 100),
-              status: 'yellow',
-              sub: `GA ${expansionData.GA?.credentialing||0}% · TX ${expansionData.TX?.credentialing||0}% · NC ${expansionData.NC?.credentialing||0}%`,
-              icon: '🗺️'
-            },
-          ];
-          const statusColors = { green: B.green, yellow: B.yellow, red: B.danger };
-          const statusBg = { green: '#F0FDF4', yellow: '#FFFBEB', red: '#FEF2F2' };
-          const statusBorder = { green: '#BBF7D0', yellow: '#FDE68A', red: '#FECACA' };
-          const weekStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-          const greenCount = kpis.filter(k => k.status === 'green').length;
-          const redCount = kpis.filter(k => k.status === 'red').length;
-
-          return (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>Weekly KPI Scorecard</div>
-                  <div style={{ fontSize: 13, color: B.gray }}>Week of {weekStr} — your 90-second Monday morning check</div>
-                </div>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '8px 14px', textAlign: 'center' }}>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: B.green, fontFamily: "'DM Mono', monospace" }}>{greenCount}</div>
-                    <div style={{ fontSize: 10, color: B.lightGray, textTransform: 'uppercase', letterSpacing: '0.08em' }}>On Track</div>
-                  </div>
-                  <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 14px', textAlign: 'center' }}>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: B.danger, fontFamily: "'DM Mono', monospace" }}>{redCount}</div>
-                    <div style={{ fontSize: 10, color: B.lightGray, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Needs Action</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* KPI Grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, marginBottom: 24 }}>
-                {kpis.map(kpi => (
-                  <div key={kpi.label} style={{ background: statusBg[kpi.status], border: `1px solid ${statusBorder[kpi.status]}`, borderRadius: 14, padding: '20px 24px', position: 'relative', overflow: 'hidden' }}>
-                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: statusColors[kpi.status] }} />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-                      <div>
-                        <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>{kpi.icon} {kpi.label}</div>
-                        <div style={{ fontSize: 32, fontWeight: 800, color: statusColors[kpi.status], fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{kpi.value}</div>
-                        <div style={{ fontSize: 11, color: B.gray, marginTop: 6 }}>{kpi.sub}</div>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: 11, color: B.lightGray, marginBottom: 4 }}>Target: {kpi.target}</div>
-                        <div style={{ fontSize: 24, fontWeight: 800, color: statusColors[kpi.status], fontFamily: "'DM Mono', monospace" }}>{kpi.pct}%</div>
-                      </div>
-                    </div>
-                    <div style={{ height: 6, background: 'rgba(0,0,0,0.06)', borderRadius: 3 }}>
-                      <div style={{ height: '100%', width: `${kpi.pct}%`, borderRadius: 3, background: statusColors[kpi.status], transition: 'width 0.6s ease' }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Weekly Executive Report Generator */}
-              <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)', marginBottom: 20 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: B.black, marginBottom: 4 }}>📋 Weekly Executive Report</div>
-                <div style={{ fontSize: 12, color: B.gray, marginBottom: 16 }}>Auto-generated from your data — ready to send to Dustin</div>
-                <div style={{ background: '#FBF7F6', border: `1px solid ${B.border}`, borderRadius: 10, padding: '20px', fontFamily: "'DM Mono', monospace", fontSize: 12, color: B.black, lineHeight: 1.8, whiteSpace: 'pre-wrap', marginBottom: 14 }}>{`AXIOMHEALTH — WEEKLY OPERATIONS REPORT
-Week of ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-Prepared by: Liam O'Brien, Director of Operations
-${'─'.repeat(50)}
-
-VISIT PERFORMANCE
-• Weekly Visits: ${manualVisits} / ${CFG.visitTarget} target (${Math.round(manualVisits/CFG.visitTarget*100)}%)
-• Gap to Sustainability Threshold: ${visitGap > 0 ? visitGap + ' visits' : 'TARGET MET ✓'}
-• Visit Completion Rate: ${totalScheduled > 0 ? Math.round(totalCompleted/totalScheduled*100) + '%' : 'Pending coordinator reports'}
-• Missed Visits: ${totalMissed} (${totalMissed <= 2 ? 'Within threshold' : 'ABOVE threshold — action taken'})
-
-PATIENT CENSUS
-• Active Patients: ${totalPatients || 'Pending'}
-• New Referrals Today: ${totalReferrals}
-• Authorization Flags: ${totalAuthsExpiring} auths expiring within 7 days
-
-TEAM ACCOUNTABILITY
-• Morning Reports Submitted: ${reportsIn}/${coordinators.length}${reportsIn < coordinators.length ? ' ⚠ ' + (coordinators.length-reportsIn) + ' MISSING' : ' ✓ ALL RECEIVED'}
-• Open Tasks: ${totalOpenTasks}
-
-REGIONAL PERFORMANCE${csvData?.regionData ? '\n' + Object.entries(csvData.regionData).sort(([,a],[,b]) => b.scheduled - a.scheduled).map(([r,d]) => `• Region ${r}: ${d.scheduled} scheduled, ${d.completed} completed (${d.scheduled > 0 ? Math.round(d.completed/d.scheduled*100) : 0}%) — ${d.clinicians} clinicians`).join('\n') : '\nUpload Pariox data to populate regional breakdown'}
-
-EXPANSION STATUS
-• Georgia: ${expansionData.GA?.credentialing||0}% credentialed — ${expansionData.GA?.staffHired||0}/${expansionData.GA?.staffNeeded||0} staff hired — Target: ${expansionData.GA?.firstPatientDate||'TBD'}
-• Texas: ${expansionData.TX?.credentialing||0}% credentialed — ${expansionData.TX?.staffHired||0}/${expansionData.TX?.staffNeeded||0} staff hired — Target: ${expansionData.TX?.firstPatientDate||'TBD'}
-• North Carolina: ${expansionData.NC?.credentialing||0}% credentialed — ${expansionData.NC?.staffHired||0}/${expansionData.NC?.staffNeeded||0} staff hired — Target: ${expansionData.NC?.firstPatientDate||'TBD'}
-${'─'.repeat(50)}
-${directorNotes.length > 0 ? 'DIRECTOR NOTES\n' + directorNotes.slice(0,3).map(n => `• [${n.date}] ${n.text}`).join('\n') : ''}`}</div>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button onClick={() => { navigator.clipboard.writeText(document.querySelector('[data-report]')?.textContent || ''); }} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 8, color: '#fff', padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', boxShadow: '0 2px 8px rgba(217,79,43,0.25)' }}
-                    onClick={() => {
-                      const text = document.querySelector('.report-text')?.innerText;
-                      if (text) navigator.clipboard.writeText(text).then(() => alert('Report copied to clipboard — paste into email or Slack'));
-                    }}>📋 Copy Report</button>
-                </div>
-              </div>
-
-              {/* Director Notes */}
-              <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: B.black, marginBottom: 4 }}>📝 Director's Notes</div>
-                <div style={{ fontSize: 12, color: B.gray, marginBottom: 16 }}>Context that lives with your data — visible in the weekly report</div>
-                <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-                  <input value={newNote} onChange={e => setNewNote(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && newNote.trim()) { const note = { text: newNote.trim(), date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), id: Date.now() }; const updated = [note, ...directorNotes].slice(0, 20); setDirectorNotes(updated); try { localStorage.setItem('axiom_director_notes', JSON.stringify(updated)); } catch(e){} setNewNote(''); }}}
-                    placeholder="Add a note for this week... (press Enter to save)"
-                    style={{ flex: 1, padding: '10px 14px', border: `1.5px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', color: B.black }} />
-                  <button onClick={() => { if (!newNote.trim()) return; const note = { text: newNote.trim(), date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), id: Date.now() }; const updated = [note, ...directorNotes].slice(0, 20); setDirectorNotes(updated); try { localStorage.setItem('axiom_director_notes', JSON.stringify(updated)); } catch(e){} setNewNote(''); }}
-                    style={{ background: B.red, border: 'none', borderRadius: 8, color: '#fff', padding: '10px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>+ Add</button>
-                </div>
-                {directorNotes.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '20px', color: B.lightGray, fontSize: 13, background: '#FDFAF9', borderRadius: 10, border: `1px dashed ${B.border}` }}>No notes yet — add context about this week's performance</div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {directorNotes.map(note => (
-                      <div key={note.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 14px', background: '#FBF7F6', border: `1px solid ${B.border}`, borderRadius: 8 }}>
-                        <span style={{ fontSize: 11, color: B.lightGray, whiteSpace: 'nowrap', marginTop: 1, fontFamily: 'monospace' }}>{note.date}</span>
-                        <span style={{ flex: 1, fontSize: 13, color: B.black }}>{note.text}</span>
-                        <button onClick={() => { const updated = directorNotes.filter(n => n.id !== note.id); setDirectorNotes(updated); try { localStorage.setItem('axiom_director_notes', JSON.stringify(updated)); } catch(e){} }}
-                          style={{ background: 'none', border: 'none', color: B.lightGray, cursor: 'pointer', fontSize: 14, padding: '0 4px' }}>✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* ── EXPANSION ────────────────────────────────────────── */}
-        {activeTab === 'expansion' && (() => {
-          const statusConfig = {
-            'Live': { color: B.green, bg: '#F0FDF4', border: '#BBF7D0' },
-            'In Progress': { color: B.red, bg: '#FFF5F2', border: '#FDDDD5' },
-            'Planning': { color: B.yellow, bg: '#FFFBEB', border: '#FDE68A' },
-            'On Hold': { color: B.lightGray, bg: '#F9FAFB', border: '#E5E7EB' },
-          };
-          const saveExpansion = (data) => { setExpansionData(data); try { localStorage.setItem('axiom_expansion', JSON.stringify(data)); } catch(e){} };
-
-          return (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>Expansion Tracker</div>
-                  <div style={{ fontSize: 13, color: B.gray }}>Georgia · Texas · North Carolina — live status for every leadership conversation</div>
-                </div>
-                <div style={{ background: '#FFF5F2', border: `1px solid #FDDDD5`, borderRadius: 10, padding: '10px 16px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>Expansion Target</div>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: B.red, fontFamily: "'DM Mono', monospace" }}>300+ Staff · $200K/wk</div>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {Object.entries(expansionData).map(([code, state]) => {
-                  const sc = statusConfig[state.status] || statusConfig['Planning'];
-                  const isEditing = editingExpansion === code;
-                  const overallPct = Math.round((state.credentialing + (state.staffHired/Math.max(state.staffNeeded,1)*100)) / 2);
-
-                  return (
-                    <div key={code} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, overflow: 'hidden', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
-                      {/* State header */}
-                      <div style={{ background: sc.bg, borderBottom: `1px solid ${sc.border}`, padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                          <div style={{ fontSize: 28, fontWeight: 800, color: sc.color, fontFamily: "'DM Mono', monospace" }}>{code}</div>
-                          <div>
-                            <div style={{ fontSize: 16, fontWeight: 800, color: B.black }}>{state.state}</div>
-                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4, background: sc.bg, border: `1px solid ${sc.border}`, borderRadius: 12, padding: '2px 10px' }}>
-                              <div style={{ width: 6, height: 6, borderRadius: '50%', background: sc.color }} />
-                              <span style={{ fontSize: 11, fontWeight: 700, color: sc.color, letterSpacing: '0.06em' }}>{state.status}</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                          <div style={{ textAlign: 'center', borderRight: `1px solid ${B.border}`, paddingRight: 16 }}>
-                            <div style={{ fontSize: 24, fontWeight: 800, color: sc.color, fontFamily: "'DM Mono', monospace" }}>{overallPct}%</div>
-                            <div style={{ fontSize: 10, color: B.lightGray, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Overall</div>
-                          </div>
-                          <button onClick={() => setEditingExpansion(isEditing ? null : code)} style={{ background: isEditing ? B.green : `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 8, color: '#fff', padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-                            {isEditing ? '✓ Save' : '✏️ Edit'}
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Metrics */}
-                      <div style={{ padding: '20px 24px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 16 }}>
-                          {[
-                            { label: 'Credentialing', value: isEditing ? null : `${state.credentialing}%`, editKey: 'credentialing', type: 'range', color: sc.color },
-                            { label: 'Staff Hired', value: isEditing ? null : `${state.staffHired}/${state.staffNeeded}`, editKey: 'staffHired', type: 'number', color: B.black },
-                            { label: 'First Patient', value: isEditing ? null : state.firstPatientDate, editKey: 'firstPatientDate', type: 'date', color: B.black },
-                            { label: 'Weekly Target', value: isEditing ? null : `${state.weeklyVisitTarget} visits`, editKey: 'weeklyVisitTarget', type: 'number', color: B.black },
-                          ].map(m => (
-                            <div key={m.label} style={{ background: '#FBF7F6', borderRadius: 10, padding: '12px 14px', border: `1px solid ${B.border}` }}>
-                              <div style={{ fontSize: 10, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>{m.label}</div>
-                              {isEditing ? (
-                                m.type === 'range' ? (
-                                  <div>
-                                    <input type="range" min="0" max="100" value={state[m.editKey]}
-                                      onChange={e => saveExpansion({ ...expansionData, [code]: { ...state, [m.editKey]: parseInt(e.target.value) } })}
-                                      style={{ width: '100%', accentColor: B.red }} />
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: sc.color, fontFamily: "'DM Mono', monospace", textAlign: 'center' }}>{state[m.editKey]}%</div>
-                                  </div>
-                                ) : (
-                                  <input type={m.type === 'date' ? 'date' : 'number'} value={state[m.editKey]}
-                                    onChange={e => saveExpansion({ ...expansionData, [code]: { ...state, [m.editKey]: m.type === 'number' ? parseInt(e.target.value)||0 : e.target.value } })}
-                                    style={{ width: '100%', padding: '6px 8px', border: `1px solid ${B.border}`, borderRadius: 6, fontSize: 13, fontFamily: "'DM Mono', monospace", outline: 'none', color: B.black, background: '#fff' }} />
-                                )
-                              ) : (
-                                <div style={{ fontSize: 16, fontWeight: 700, color: m.color, fontFamily: "'DM Mono', monospace" }}>{m.value}</div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* Credentialing progress bar */}
-                        <div style={{ marginBottom: 12 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                            <span style={{ fontSize: 12, color: B.gray }}>Credentialing Progress</span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: sc.color, fontFamily: 'monospace' }}>{state.credentialing}%</span>
-                          </div>
-                          <div style={{ height: 8, background: '#F5EDEB', borderRadius: 4 }}>
-                            <div style={{ height: '100%', width: `${state.credentialing}%`, borderRadius: 4, background: `linear-gradient(90deg, ${B.darkRed}, ${B.red}, ${B.orange})`, transition: 'width 0.5s ease' }} />
-                          </div>
-                        </div>
-
-                        {/* Status selector + notes */}
-                        {isEditing && (
-                          <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 12, marginTop: 12 }}>
-                            <div>
-                              <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Status</div>
-                              <select value={state.status} onChange={e => saveExpansion({ ...expansionData, [code]: { ...state, status: e.target.value } })}
-                                style={{ width: '100%', padding: '8px 10px', border: `1px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', color: B.black, background: '#fff' }}>
-                                {['Planning', 'In Progress', 'Live', 'On Hold'].map(s => <option key={s}>{s}</option>)}
-                              </select>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Notes</div>
-                              <input value={state.notes} onChange={e => saveExpansion({ ...expansionData, [code]: { ...state, notes: e.target.value } })}
-                                placeholder="Key blockers, next steps, contacts..."
-                                style={{ width: '100%', padding: '8px 12px', border: `1px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', color: B.black, background: '#fff' }} />
-                            </div>
-                          </div>
-                        )}
-                        {!isEditing && state.notes && (
-                          <div style={{ padding: '10px 14px', background: '#FFF5F2', borderRadius: 8, borderLeft: `3px solid #FDDDD5`, fontSize: 12, color: B.black }}>
-                            {state.notes}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Combined expansion impact */}
-              <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '20px 24px', marginTop: 16, boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: B.black, marginBottom: 14 }}>Projected Impact When All 3 States Are Live</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-                  {[
-                    { label: 'Additional Weekly Visits', value: Object.values(expansionData).reduce((s,e) => s + (e.weeklyVisitTarget||0), 0), color: B.red },
-                    { label: 'Combined Weekly Target', value: CFG.visitTarget + Object.values(expansionData).reduce((s,e) => s + (e.weeklyVisitTarget||0), 0), color: B.darkRed },
-                    { label: 'Staff to Hire', value: Object.values(expansionData).reduce((s,e) => s + Math.max(0, (e.staffNeeded||0)-(e.staffHired||0)), 0), color: B.orange },
-                  ].map(m => (
-                    <div key={m.label} style={{ background: '#FBF7F6', borderRadius: 10, padding: '14px', textAlign: 'center', border: `1px solid ${B.border}` }}>
-                      <div style={{ fontSize: 28, fontWeight: 800, color: m.color, fontFamily: "'DM Mono', monospace" }}>{m.value}</div>
-                      <div style={{ fontSize: 11, color: B.lightGray, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 4 }}>{m.label}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
-
-        {/* ── STAFF DIRECTORY ─────────────────────────────────── */}
-        {activeTab === 'staff' && (() => {
-          const DISC_CONFIG = {
-            'LYMPHEDEMA PT':  { label: 'PT',   color: '#1565C0', bg: '#EFF6FF', border: '#BFDBFE', role: 'supervisory' },
-            'LYMPHEDEMA PTA': { label: 'PTA',  color: B.red,     bg: '#FFF5F2', border: '#FDDDD5', role: 'treating' },
-            'OT':             { label: 'OT',   color: '#6D28D9', bg: '#F5F3FF', border: '#DDD6FE', role: 'supervisory' },
-            'COTA':           { label: 'COTA', color: '#059669', bg: '#ECFDF5', border: '#A7F3D0', role: 'treating' },
-          };
-          const CLASS_CONFIG = {
-            telehealth: { label: 'Telehealth', color: '#6D28D9', bg: '#F5F3FF', border: '#DDD6FE', icon: '💻' },
-            field:      { label: 'Field',      color: '#059669', bg: '#ECFDF5', border: '#A7F3D0', icon: '🏠' },
-          };
-
-          const allStaff = Object.values(staffDirectory);
-          const filtered = allStaff
-            .filter(s => {
-              if (staffFilter === 'telehealth') return s.classification === 'telehealth';
-              if (staffFilter === 'field') return s.classification === 'field';
-              if (staffFilter === 'pt') return s.discipline === 'LYMPHEDEMA PT';
-              if (staffFilter === 'pta') return s.discipline === 'LYMPHEDEMA PTA';
-              if (staffFilter === 'ot') return s.discipline === 'OT';
-              if (staffFilter === 'cota') return s.discipline === 'COTA';
-              if (staffFilter === 'mismatch') return s.classification === 'telehealth' && s.discipline.includes('PTA') || s.classification === 'telehealth' && s.discipline === 'COTA';
-              return true;
-            })
-            .filter(s => !staffSearch || s.name.toLowerCase().includes(staffSearch.toLowerCase()))
-            .sort((a, b) => a.name.localeCompare(b.name));
-
-          const telehealthCount = allStaff.filter(s => s.classification === 'telehealth').length;
-          const fieldCount = allStaff.filter(s => s.classification === 'field').length;
-          const mismatches = allStaff.filter(s =>
-            (s.classification === 'telehealth' && (s.discipline === 'LYMPHEDEMA PTA' || s.discipline === 'COTA')) ||
-            (s.classification === 'field' && (s.discipline === 'LYMPHEDEMA PT' || s.discipline === 'OT') && s.regionCount <= 2)
-          );
-
-          return (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>Staff Directory</div>
-                  <div style={{ fontSize: 13, color: B.gray }}>
-                    {allStaff.length > 0
-                      ? `${allStaff.length} clinicians · ${telehealthCount} telehealth · ${fieldCount} field${mismatches.length > 0 ? ` · ⚠️ ${mismatches.length} classification to review` : ''}`
-                      : 'Upload a Pariox report to auto-populate the directory'}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {allStaff.length === 0 && (
-                    <button onClick={() => setActiveTab('data')} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 8, color: '#fff', padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Upload Pariox →</button>
-                  )}
-                </div>
-              </div>
-
-              {/* Mismatch alert */}
-              {mismatches.length > 0 && (
-                <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                  <span style={{ fontSize: 18 }}>⚠️</span>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#92400E', marginBottom: 4 }}>Classification Review Required</div>
-                    <div style={{ fontSize: 12, color: '#92400E' }}>
-                      {mismatches.map(s => `${s.name} (${DISC_CONFIG[s.discipline]?.label || s.discipline}) is marked as ${s.classification}`).join(' · ')}
-                    </div>
-                    <button onClick={() => setStaffFilter('mismatch')} style={{ marginTop: 8, background: '#92400E', border: 'none', borderRadius: 6, color: '#fff', padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Review these →</button>
-                  </div>
-                </div>
-              )}
-
-              {/* Summary cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-                {[
-                  { label: 'PT / Supervisory', value: allStaff.filter(s => s.discipline === 'LYMPHEDEMA PT').length, color: '#1565C0', icon: '🩺' },
-                  { label: 'PTA / Treating', value: allStaff.filter(s => s.discipline === 'LYMPHEDEMA PTA').length, color: B.red, icon: '👐' },
-                  { label: 'OT / Supervisory', value: allStaff.filter(s => s.discipline === 'OT').length, color: '#6D28D9', icon: '🖐️' },
-                  { label: 'COTA / Treating', value: allStaff.filter(s => s.discipline === 'COTA').length, color: '#059669', icon: '🤝' },
-                ].map(c => (
-                  <div key={c.label} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 12, padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                    <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>{c.icon} {c.label}</div>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: c.color, fontFamily: "'DM Mono', monospace" }}>{c.value}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Filters + Search */}
-              <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-                <input value={staffSearch} onChange={e => setStaffSearch(e.target.value)} placeholder="Search by name..."
-                  style={{ padding: '8px 14px', border: `1.5px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', color: B.black, width: 220 }} />
-                {[
-                  { key: 'all', label: 'All' },
-                  { key: 'telehealth', label: '💻 Telehealth' },
-                  { key: 'field', label: '🏠 Field' },
-                  { key: 'pt', label: 'PT' },
-                  { key: 'pta', label: 'PTA' },
-                  { key: 'ot', label: 'OT' },
-                  { key: 'cota', label: 'COTA' },
-                  ...(mismatches.length > 0 ? [{ key: 'mismatch', label: `⚠️ Review (${mismatches.length})` }] : []),
-                ].map(f => (
-                  <button key={f.key} onClick={() => setStaffFilter(f.key)} style={{
-                    padding: '7px 14px', borderRadius: 8, border: `1px solid ${staffFilter === f.key ? B.red : B.border}`,
-                    background: staffFilter === f.key ? '#FFF5F2' : 'transparent',
-                    color: staffFilter === f.key ? B.red : B.gray,
-                    fontSize: 12, fontWeight: staffFilter === f.key ? 700 : 400, cursor: 'pointer', fontFamily: 'inherit'
-                  }}>{f.label}</button>
-                ))}
-                <span style={{ marginLeft: 'auto', fontSize: 12, color: B.lightGray }}>{filtered.length} clinicians</span>
-              </div>
-
-              {/* Staff Table */}
-              {allStaff.length === 0 ? (
-                <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '48px 24px', textAlign: 'center', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
-                  <div style={{ fontSize: 36, marginBottom: 12 }}>👥</div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: B.black, marginBottom: 8 }}>Directory is empty</div>
-                  <div style={{ fontSize: 13, color: B.gray }}>Upload a Pariox report and the directory auto-populates with all clinicians, disciplines, and regions</div>
-                </div>
-              ) : (
-                <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, overflow: 'hidden', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
-                  {/* Table Header */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '200px 90px 120px 130px 90px 90px 1fr', padding: '10px 20px', background: '#FBF7F6', borderBottom: `1px solid ${B.border}` }}>
-                    {['Clinician', 'Disc', 'Classification', 'Regions', 'Visits', 'Patients', 'Actions'].map((h, i) => (
-                      <div key={h} style={{ fontSize: 10, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', textAlign: i > 1 && i < 6 ? 'center' : 'left' }}>{h}</div>
-                    ))}
-                  </div>
-
-                  {filtered.map(staff => {
-                    const dc = DISC_CONFIG[staff.discipline] || { label: staff.discipline, color: B.gray, bg: '#F9FAFB', border: '#E5E7EB' };
-                    const cc = CLASS_CONFIG[staff.classification] || CLASS_CONFIG.field;
-                    const isEditing = editingStaff === staff.name;
-                    const isMismatch = mismatches.find(m => m.name === staff.name);
-
-                    return (
-                      <div key={staff.name} style={{ borderBottom: `1px solid #FAF4F2`, background: isMismatch ? '#FFFBEB' : 'transparent' }}>
-                        {/* Main row */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '200px 90px 120px 130px 90px 90px 1fr', padding: '12px 20px', alignItems: 'center' }}>
-                          <div>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: B.black }}>{staff.name}</div>
-                            {staff.status === 'inactive' && <div style={{ fontSize: 10, color: B.lightGray }}>Inactive</div>}
-                            {isMismatch && <div style={{ fontSize: 10, color: '#D97706', fontWeight: 600 }}>⚠ Review classification</div>}
-                          </div>
-
-                          <div>
-                            <span style={{ background: dc.bg, border: `1px solid ${dc.border}`, color: dc.color, borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700 }}>{dc.label}</span>
-                          </div>
-
-                          <div>
-                            {isEditing ? (
-                              <div style={{ display: 'flex', gap: 4 }}>
-                                {['telehealth', 'field'].map(cls => (
-                                  <button key={cls} onClick={() => {
-                                    const updated = { ...staffDirectory, [staff.name]: { ...staff, classification: cls } };
-                                    saveStaffDirectory(updated);
-                                  }} style={{
-                                    padding: '4px 8px', borderRadius: 6, border: `1px solid ${staff.classification === cls ? CLASS_CONFIG[cls].border : B.border}`,
-                                    background: staff.classification === cls ? CLASS_CONFIG[cls].bg : 'transparent',
-                                    color: staff.classification === cls ? CLASS_CONFIG[cls].color : B.lightGray,
-                                    fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit'
-                                  }}>{CLASS_CONFIG[cls].icon} {CLASS_CONFIG[cls].label}</button>
-                                ))}
-                              </div>
-                            ) : (
-                              <span style={{ background: cc.bg, border: `1px solid ${cc.border}`, color: cc.color, borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700 }}>{cc.icon} {cc.label}</span>
-                            )}
-                          </div>
-
-                          <div style={{ textAlign: 'center', fontSize: 11, color: B.gray }}>{staff.regions}</div>
-                          <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 700, color: B.black, fontFamily: "'DM Mono', monospace" }}>{staff.weeklyVisits || 0}</div>
-                          <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 700, color: B.black, fontFamily: "'DM Mono', monospace" }}>{staff.uniquePatients || 0}</div>
-
-                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                            <button onClick={() => setEditingStaff(isEditing ? null : staff.name)} style={{
-                              background: isEditing ? B.green : 'transparent', border: `1px solid ${isEditing ? B.green : B.border}`,
-                              borderRadius: 7, color: isEditing ? '#fff' : B.gray, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit'
-                            }}>{isEditing ? '✓ Done' : 'Edit'}</button>
-                            <button onClick={() => {
-                              const updated = { ...staffDirectory, [staff.name]: { ...staff, status: staff.status === 'inactive' ? 'active' : 'inactive' } };
-                              saveStaffDirectory(updated);
-                            }} style={{
-                              background: 'transparent', border: `1px solid ${B.border}`,
-                              borderRadius: 7, color: staff.status === 'inactive' ? B.green : B.lightGray,
-                              padding: '5px 10px', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit'
-                            }}>{staff.status === 'inactive' ? 'Activate' : 'Deactivate'}</button>
-                          </div>
-                        </div>
-
-                        {/* Edit panel */}
-                        {isEditing && (
-                          <div style={{ margin: '0 20px 16px', background: '#FBF7F6', border: `1px solid ${B.border}`, borderRadius: 10, padding: '16px' }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: B.black, marginBottom: 12 }}>Edit {staff.name}</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                              <div>
-                                <label style={{ display: 'block', fontSize: 11, color: B.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Classification</label>
-                                <select value={staff.classification}
-                                  onChange={e => saveStaffDirectory({ ...staffDirectory, [staff.name]: { ...staff, classification: e.target.value } })}
-                                  style={{ width: '100%', padding: '8px 10px', border: `1px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', color: B.black, background: '#fff', outline: 'none' }}>
-                                  <option value="telehealth">💻 Telehealth</option>
-                                  <option value="field">🏠 Field</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label style={{ display: 'block', fontSize: 11, color: B.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Status</label>
-                                <select value={staff.status}
-                                  onChange={e => saveStaffDirectory({ ...staffDirectory, [staff.name]: { ...staff, status: e.target.value } })}
-                                  style={{ width: '100%', padding: '8px 10px', border: `1px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', color: B.black, background: '#fff', outline: 'none' }}>
-                                  <option value="active">Active</option>
-                                  <option value="inactive">Inactive</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label style={{ display: 'block', fontSize: 11, color: B.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Phone</label>
-                                <input value={staff.phone || ''} onChange={e => saveStaffDirectory({ ...staffDirectory, [staff.name]: { ...staff, phone: e.target.value } })}
-                                  placeholder="(407) 555-0100"
-                                  style={{ width: '100%', padding: '8px 10px', border: `1px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', color: B.black, outline: 'none' }} />
-                              </div>
-                              <div>
-                                <label style={{ display: 'block', fontSize: 11, color: B.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Email</label>
-                                <input value={staff.email || ''} onChange={e => saveStaffDirectory({ ...staffDirectory, [staff.name]: { ...staff, email: e.target.value } })}
-                                  placeholder="name@axiomhealth.com"
-                                  style={{ width: '100%', padding: '8px 10px', border: `1px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', color: B.black, outline: 'none' }} />
-                              </div>
-                              <div style={{ gridColumn: 'span 2' }}>
-                                <label style={{ display: 'block', fontSize: 11, color: B.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Notes</label>
-                                <input value={staff.notes || ''} onChange={e => saveStaffDirectory({ ...staffDirectory, [staff.name]: { ...staff, notes: e.target.value } })}
-                                  placeholder="Schedule notes, supervision assignments, issues..."
-                                  style={{ width: '100%', padding: '8px 10px', border: `1px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', color: B.black, outline: 'none' }} />
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })()}
-
-
-        {/* ── REVENUE ─────────────────────────────────────────── */}
-        {activeTab === 'revenue' && (() => {
-          const avgRate = CFG.avgReimbursement;
-          const weeklyVisitRev = (csvData?.dedupedCount || manualVisits) * avgRate;
-          const revTarget = CFG.revenueTarget;
-          const revPct = Math.min(Math.round(weeklyVisitRev / revTarget * 100), 100);
-          const revGap = Math.max(0, revTarget - weeklyVisitRev);
-          const revStatus = revPct >= 100 ? 'green' : revPct >= 80 ? 'yellow' : 'red';
-          const statusColors = { green: B.green, yellow: B.yellow, red: B.danger };
-
-          // Auth risk revenue
-          const authRiskPatients = hasCensus ? ((censusData.counts.auth_pending||0) + (censusData.counts.active_auth_pending||0)) : 0;
-          const authRiskRev = authRiskPatients * CFG.authRiskVisitsPerWeek * avgRate;
-
-          // On hold paused revenue
-          const onHoldPatients = hasCensus ? ((censusData.counts.on_hold||0) + (censusData.counts.on_hold_facility||0) + (censusData.counts.on_hold_pt||0) + (censusData.counts.on_hold_md||0)) : 0;
-          const onHoldRev = onHoldPatients * CFG.authRiskVisitsPerWeek * avgRate;
-
-          // SOC pending potential
-          const socPending = hasCensus ? (censusData.counts.soc_pending||0) : 0;
-          const socPotential = socPending * CFG.authRiskVisitsPerWeek * avgRate;
-
-          // Waitlist potential
-          const waitlistPats = hasCensus ? (censusData.counts.waitlist||0) : 0;
-          const waitlistPotential = waitlistPats * CFG.authRiskVisitsPerWeek * avgRate;
-
-          // Payer mix — derived from Ref Source prefix (Insurance col is placeholder)
-          const getPayerFromRef = (ref) => {
-            const r = (ref || '').toUpperCase();
-            if (r.startsWith('HU')) return 'Humana';
-            if (r.startsWith('CP') || r.startsWith('CAR')) return 'CarePlus';
-            if (r.startsWith('MED')) return 'Medicare/Devoted';
-            if (r.startsWith('DH')) return 'Devoted Health';
-            if (r.startsWith('FHC')) return 'Florida Health Care Plans';
-            if (r.startsWith('AM') || r.startsWith('AC')) return 'Aetna';
-            if (r.startsWith('CIG') || r.startsWith('HCIG')) return 'Cigna';
-            if (r.startsWith('HF')) return 'HealthFirst';
-            if (r.startsWith('PP')) return 'Private Pay (Self)';
-            return 'Other';
-          };
-          const payerCounts = hasCensus ? censusData.patients.reduce((acc, p) => {
-            const key = getPayerFromRef(p.ref);
-            acc[key] = (acc[key]||0) + 1; return acc;
-          }, {}) : {};
-          const totalPayers = Object.values(payerCounts).reduce((s,v)=>s+v,0);
-
-          const fmt = (n) => n >= 1000 ? `$${(n/1000).toFixed(1)}K` : `$${n}`;
-
-          return (
-            <div>
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>Revenue Dashboard</div>
-                <div style={{ fontSize: 13, color: B.gray }}>
-                  Based on {fmt(avgRate)} avg reimbursement per visit — update in ⚙️ Settings
-                </div>
-              </div>
-
-              {/* Revenue target banner */}
-              <div style={{ background: `linear-gradient(135deg, ${B.darkRed}, ${B.red}, ${B.orange})`, borderRadius: 18, padding: '24px 32px', marginBottom: 24, position: 'relative', overflow: 'hidden', boxShadow: '0 4px 16px rgba(139,26,16,0.2)' }}>
-                <div style={{ position: 'absolute', inset: 0, opacity: 0.06, backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap', position: 'relative' }}>
-                  <div style={{ flex: 1, minWidth: 250 }}>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>Estimated Weekly Revenue</div>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-                      <span style={{ fontSize: 44, fontWeight: 800, color: '#fff', fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{fmt(weeklyVisitRev)}</span>
-                      <span style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}>/ {fmt(revTarget)} target</span>
-                    </div>
-                    <div style={{ marginTop: 12, height: 6, background: 'rgba(255,255,255,0.2)', borderRadius: 3 }}>
-                      <div style={{ height: '100%', width: `${revPct}%`, background: '#fff', borderRadius: 3, transition: 'width 0.5s ease' }} />
-                    </div>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 6 }}>
-                      {revPct >= 100 ? '🎯 Revenue target reached' : `${fmt(revGap)} gap to ${fmt(revTarget)} weekly target`}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 20 }}>
-                    {[
-                      { label: 'Per Visit', value: fmt(avgRate) },
-                      { label: 'Visits', value: csvData?.dedupedCount || manualVisits },
-                      { label: 'Pace', value: `${revPct}%` },
-                    ].map((s, i) => (
-                      <div key={s.label} style={{ textAlign: 'center', paddingLeft: i > 0 ? 20 : 0, borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
-                        <div style={{ fontSize: 24, fontWeight: 800, color: '#fff', fontFamily: "'DM Mono', monospace" }}>{s.value}</div>
-                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 3 }}>{s.label}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Revenue cards row */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
-                {[
-                  { label: 'Est. Weekly Revenue', value: fmt(weeklyVisitRev), sub: `${csvData?.dedupedCount || manualVisits} visits × ${fmt(avgRate)}`, color: B.green, icon: '💰' },
-                  { label: 'Auth Risk Revenue', value: fmt(authRiskRev), sub: `${authRiskPatients} patients blocked`, color: B.yellow, icon: '🔒', alert: authRiskPatients > 10 ? 'High risk — action needed' : null },
-                  { label: 'On Hold Paused Rev', value: fmt(onHoldRev), sub: `${onHoldPatients} patients on hold`, color: '#6B7280', icon: '⏸️' },
-                  { label: 'SOC + Waitlist Pipeline', value: fmt(socPotential + waitlistPotential), sub: `${socPending + waitlistPats} patients ready to activate`, color: '#0284C7', icon: '📈' },
-                ].map(c => (
-                  <div key={c.label} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 14, padding: '18px 20px', position: 'relative', overflow: 'hidden', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
-                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${c.color}, transparent)` }} />
-                    <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>{c.icon} {c.label}</div>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: c.color, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{c.value}</div>
-                    <div style={{ fontSize: 11, color: B.gray, marginTop: 6 }}>{c.sub}</div>
-                    {c.alert && <div style={{ fontSize: 11, color: B.danger, marginTop: 4, fontWeight: 600 }}>{c.alert}</div>}
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-                {/* Revenue by region */}
-                <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '22px 24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: B.black, marginBottom: 16 }}>📊 Revenue by Region (Est.)</div>
-                  {csvData?.regionData ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {Object.entries(csvData.regionData).sort(([,a],[,b]) => b.scheduled - a.scheduled).map(([region, data]) => {
-                        const regionRev = data.scheduled * avgRate;
-                        const maxRev = Math.max(...Object.values(csvData.regionData).map(d => d.scheduled * avgRate));
-                        const pct = Math.round(regionRev / maxRev * 100);
-                        return (
-                          <div key={region}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                              <span style={{ fontSize: 12, fontWeight: 600, color: B.black }}>Region {region}</span>
-                              <div style={{ display: 'flex', gap: 12 }}>
-                                <span style={{ fontSize: 11, color: B.gray }}>{data.scheduled} visits</span>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: B.red, fontFamily: 'monospace' }}>{fmt(regionRev)}</span>
-                              </div>
-                            </div>
-                            <div style={{ height: 5, background: '#F5EDEB', borderRadius: 3 }}>
-                              <div style={{ height: '100%', width: `${pct}%`, borderRadius: 3, background: `linear-gradient(90deg, ${B.darkRed}, ${B.orange})`, transition: 'width 0.5s ease' }} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div style={{ textAlign: 'center', padding: '24px', color: B.lightGray, fontSize: 13 }}>Upload Pariox data to see regional revenue breakdown</div>
-                  )}
-                </div>
-
-                {/* Payer mix + revenue opportunity */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {/* Payer mix */}
-                  <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '22px 24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: B.black, marginBottom: 14 }}>🏥 Payer Mix</div>
-                    {Object.keys(payerCounts).length > 0 ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {Object.entries(payerCounts).sort(([,a],[,b]) => b-a).map(([payer, count]) => {
-                          const pct = Math.round(count / totalPayers * 100);
-                          const payerColor =
-                            payer === 'Humana' ? '#0066CC' :
-                            payer === 'CarePlus' ? '#009B77' :
-                            payer === 'Medicare/Devoted' ? '#1565C0' :
-                            payer === 'Devoted Health' ? '#1976D2' :
-                            payer === 'Florida Health Care Plans' ? '#2E7D32' :
-                            payer === 'Aetna' ? '#7B1FA2' :
-                            payer === 'Cigna' ? '#E65100' :
-                            payer === 'HealthFirst' ? '#00838F' :
-                            payer === 'Private Pay (Self)' ? B.gray : B.lightGray;
-                          return (
-                            <div key={payer}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                <span style={{ fontSize: 12, color: B.black }}>{payer}</span>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: payerColor, fontFamily: 'monospace' }}>{count} ({pct}%)</span>
-                              </div>
-                              <div style={{ height: 4, background: '#F5EDEB', borderRadius: 2 }}>
-                                <div style={{ height: '100%', width: `${pct}%`, borderRadius: 2, background: payerColor }} />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      <div style={{ borderTop: `1px solid ${B.border}`, marginTop: 4, paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: 11, color: B.gray }}>Total insured patients</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: B.black }}>{totalPayers}</span>
-                      </div>
-                        {(() => {
-                          const topPayer = Object.entries(payerCounts).sort(([,a],[,b])=>b-a)[0];
-                          if (topPayer && topPayer[1]/totalPayers > 0.4) {
-                            return (
-                              <div style={{ marginTop: 8, padding: '8px 12px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: 11, color: '#92400E' }}>
-                                ⚠️ {topPayer[0]} represents {Math.round(topPayer[1]/totalPayers*100)}% of census ({topPayer[1]} patients) — single payer concentration risk
-                              </div>
-                            );
-                          }
-                          return null;
-                        })()}
-                      </div>
-                    ) : (
-                      <div style={{ textAlign: 'center', color: B.lightGray, fontSize: 13 }}>Upload census data to see payer mix</div>
-                    )}
-                  </div>
-
-                  {/* Revenue opportunity */}
-                  <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 16, padding: '20px 24px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: B.green, marginBottom: 12 }}>📈 Revenue Recovery Opportunity</div>
-                    {[
-                      { label: 'Resolve auth blocks', patients: authRiskPatients, color: B.yellow },
-                      { label: 'Activate SOC pending', patients: socPending, color: '#0284C7' },
-                      { label: 'Convert waitlist', patients: waitlistPats, color: '#7C3AED' },
-                      { label: 'Return on-hold patients', patients: onHoldPatients, color: '#6B7280' },
-                    ].map(r => (
-                      <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontSize: 12, color: B.black }}>{r.label}</span>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: B.green, fontFamily: 'monospace' }}>+{fmt(r.patients * CFG.authRiskVisitsPerWeek * avgRate)}/wk</span>
-                      </div>
-                    ))}
-                    <div style={{ borderTop: `1px solid #BBF7D0`, paddingTop: 10, marginTop: 4, display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: B.green }}>Total potential uplift</span>
-                      <span style={{ fontSize: 14, fontWeight: 800, color: B.green, fontFamily: 'monospace' }}>+{fmt((authRiskPatients + socPending + waitlistPats + onHoldPatients) * CFG.authRiskVisitsPerWeek * avgRate)}/wk</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* ── ADMIN SETTINGS ───────────────────────────────────── */}
-        {activeTab === '⚙️' && (() => {
-          const isUnlocked = adminUnlocked;
-          const draft = settingsDraft || CFG;
-
-          return (
-            <div style={{ maxWidth: 720, margin: '0 auto' }}>
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>⚙️ Director Settings</div>
-                <div style={{ fontSize: 13, color: B.gray }}>Edit dashboard targets, rates, and thresholds — no code required</div>
-              </div>
-
-              {!isUnlocked ? (
-                <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '40px', textAlign: 'center', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
-                  <div style={{ fontSize: 32, marginBottom: 12 }}>🔐</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: B.black, marginBottom: 6 }}>Director Access Required</div>
-                  <div style={{ fontSize: 13, color: B.gray, marginBottom: 24 }}>Enter your 4-digit PIN to edit settings</div>
-                  <div style={{ display: 'flex', gap: 10, justifyContent: 'center', alignItems: 'center' }}>
-                    <input
-                      type="password" maxLength={4} value={adminPinInput}
-                      onChange={e => { setAdminPinInput(e.target.value); setAdminPinError(false); }}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          if (adminPinInput === CFG.adminPin) { setAdminUnlocked(true); setSettingsDraft({...CFG}); setAdminPinInput(''); }
-                          else { setAdminPinError(true); setAdminPinInput(''); }
-                        }
-                      }}
-                      placeholder="PIN"
-                      style={{ width: 100, padding: '12px', textAlign: 'center', fontSize: 20, letterSpacing: '0.3em', border: `2px solid ${adminPinError ? B.danger : B.border}`, borderRadius: 10, outline: 'none', fontFamily: "'DM Mono', monospace" }}
-                    />
-                    <button onClick={() => {
-                      if (adminPinInput === CFG.adminPin) { setAdminUnlocked(true); setSettingsDraft({...CFG}); setAdminPinInput(''); }
-                      else { setAdminPinError(true); setAdminPinInput(''); }
-                    }} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 10, color: '#fff', padding: '12px 20px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Unlock</button>
-                  </div>
-                  {adminPinError && <div style={{ color: B.danger, fontSize: 12, marginTop: 10 }}>Incorrect PIN — try again</div>}
-                  <div style={{ fontSize: 11, color: B.lightGray, marginTop: 16 }}>Default PIN: 1234 — change it in settings after unlocking</div>
-                </div>
-              ) : (
-                <div>
-                  {/* Settings form */}
-                  {[
-                    {
-                      section: '📅 Visit Targets',
-                      fields: [
-                        { key: 'visitTarget', label: 'Weekly Visit Target', sub: 'Sustainability threshold for the whole company', type: 'number', suffix: 'visits/wk' },
-                      ]
-                    },
-                    {
-                      section: '💰 Revenue Targets',
-                      fields: [
-                        { key: 'revenueTarget', label: 'Weekly Revenue Target', sub: 'Company weekly revenue goal', type: 'number', prefix: '$', suffix: '/week' },
-                        { key: 'avgReimbursement', label: 'Avg Reimbursement Per Visit', sub: 'Used to estimate all revenue figures', type: 'number', prefix: '$', suffix: '/visit' },
-                        { key: 'authRiskVisitsPerWeek', label: 'Avg Visits Per Patient Per Week', sub: 'Used for revenue risk calculations', type: 'number', suffix: 'visits/wk' },
-                      ]
-                    },
-                    {
-                      section: '👥 Census Targets',
-                      fields: [
-                        { key: 'activeCensusTarget', label: 'Active Census Target', sub: 'Goal for Active + Active-Auth Pending patients', type: 'number', suffix: 'patients' },
-                        { key: 'coordinatorCap', label: 'Coordinator Caseload Cap', sub: 'Max patients per care coordinator before flag', type: 'number', suffix: 'patients' },
-                      ]
-                    },
-                    {
-                      section: '🔐 Security',
-                      fields: [
-                        { key: 'adminPin', label: 'Director PIN', sub: 'Change your 4-digit settings PIN', type: 'text', maxLength: 4 },
-                      ]
-                    },
-                  ].map(section => (
-                    <div key={section.section} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '22px 24px', marginBottom: 16, boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: B.black, marginBottom: 16 }}>{section.section}</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                        {section.fields.map(field => (
-                          <div key={field.key} style={{ display: 'grid', gridTemplateColumns: '1fr 200px', gap: 16, alignItems: 'center' }}>
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: B.black }}>{field.label}</div>
-                              <div style={{ fontSize: 11, color: B.gray, marginTop: 2 }}>{field.sub}</div>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              {field.prefix && <span style={{ fontSize: 13, color: B.gray }}>{field.prefix}</span>}
-                              <input
-                                type={field.type}
-                                value={draft[field.key]}
-                                maxLength={field.maxLength}
-                                onChange={e => setSettingsDraft(prev => ({ ...prev, [field.key]: field.type === 'number' ? (parseFloat(e.target.value)||0) : e.target.value }))}
-                                style={{ flex: 1, padding: '10px 12px', border: `1.5px solid ${B.border}`, borderRadius: 8, fontSize: 14, fontFamily: "'DM Mono', monospace", fontWeight: 700, color: B.red, outline: 'none', textAlign: 'right' }}
-                              />
-                              {field.suffix && <span style={{ fontSize: 11, color: B.gray, whiteSpace: 'nowrap' }}>{field.suffix}</span>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Save / Cancel */}
-                  <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
-                    <button onClick={() => { setAdminUnlocked(false); setSettingsDraft(null); }} style={{ background: 'none', border: `1px solid ${B.border}`, borderRadius: 10, color: B.gray, padding: '12px 20px', fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
-                    <button onClick={() => { saveSettings(draft); setAdminUnlocked(false); setSettingsDraft(null); alert('Settings saved — dashboard updated.'); }} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 10, color: '#fff', padding: '12px 24px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', boxShadow: '0 2px 8px rgba(217,79,43,0.3)' }}>
-                      Save Settings
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
 
         {/* ── DATA ─────────────────────────────────────────────── */}
         {activeTab === 'data' && (
