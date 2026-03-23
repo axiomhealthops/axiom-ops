@@ -244,12 +244,25 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
 
   useEffect(() => {
     // Load SheetJS for Excel support
-    if (!window.XLSX) {
+    if (!window.XLSX && !document.querySelector('script[src*="xlsx"]')) {
       const script = document.createElement('script');
       script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      script.async = true;
       document.head.appendChild(script);
     }
   }, []);
+
+  // Wait for XLSX to load then run callback — handles async script loading
+  const withXLSX = (callback, onError) => {
+    if (window.XLSX) { callback(window.XLSX); return; }
+    let attempts = 0;
+    const check = setInterval(() => {
+      attempts++;
+      if (window.XLSX) { clearInterval(check); callback(window.XLSX); }
+      else if (attempts > 40) { clearInterval(check); onError('Excel parser timed out. Please save as CSV and try again.'); }
+    }, 250);
+  };
+
 
   function processRows(rows, headersArr, statusIdx, dateIdx) {
     let completed = 0, missed = 0, scheduled = 0;
@@ -379,21 +392,22 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
     if (isXLSX) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        try {
-          const XLSX = window.XLSX;
-          if (!XLSX) { setError('Excel parser still loading — please try again in a moment.'); setProcessing(false); return; }
-          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'mm/dd/yyyy' });
-          const headers = (rows[0] || []).map(h => String(h || '').toLowerCase().trim());
-          const statusIdx = headers.findIndex(h => h.includes('status'));
-          const dateIdx = headers.findIndex(h => h === 'date');
-          if (statusIdx === -1) { setError('Could not find Status column. Make sure this is a Pariox export.'); setProcessing(false); return; }
-          const result = processRows(rows, headers, statusIdx, dateIdx);
-          setLastFile(file.name);
-          onDataLoaded(result);
-          setProcessing(false);
-        } catch (err) { setError('Error reading Excel: ' + err.message); setProcessing(false); }
+        const arrayBuf = e.target.result;
+        withXLSX((XLSX) => {
+          try {
+            const wb = XLSX.read(new Uint8Array(arrayBuf), { type: 'array', cellDates: true });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'mm/dd/yyyy' });
+            const headers = (rows[0] || []).map(h => String(h || '').toLowerCase().trim());
+            const statusIdx = headers.findIndex(h => h.includes('status'));
+            const dateIdx = headers.findIndex(h => h === 'date');
+            if (statusIdx === -1) { setError('Could not find Status column. Make sure this is a Pariox export.'); setProcessing(false); return; }
+            const result = processRows(rows, headers, statusIdx, dateIdx);
+            setLastFile(file.name);
+            onDataLoaded(result);
+            setProcessing(false);
+          } catch (err) { setError('Error reading Excel: ' + err.message); setProcessing(false); }
+        }, (errMsg) => { setError(errMsg); setProcessing(false); });
       };
       reader.readAsArrayBuffer(file);
     } else {
@@ -490,16 +504,17 @@ function CensusUploadPanel({ censusData, onDataLoaded, parseCensusFile, error, s
     if (isXLSX) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        try {
-          const XLSX = window.XLSX;
-          if (!XLSX) { setError('Excel parser loading — try again in a moment or use CSV format'); setProcessing(false); return; }
-          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          const csvText = XLSX.utils.sheet_to_csv(ws);
-          const result = parseCensusFile(csvText);
-          if (!result) { setError('Could not detect a Status column. Make sure this is a Pariox patient census report.'); setProcessing(false); return; }
-          onDataLoaded(result); setProcessing(false);
-        } catch(err) { setError('Error reading file: ' + err.message); setProcessing(false); }
+        const arrayBuf = e.target.result;
+        withXLSX((XLSX) => {
+          try {
+            const wb = XLSX.read(new Uint8Array(arrayBuf), { type: 'array', cellDates: true });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const csvText = XLSX.utils.sheet_to_csv(ws);
+            const result = parseCensusFile(csvText);
+            if (!result) { setError('Could not detect a Status column. Make sure this is a Pariox patient census report.'); setProcessing(false); return; }
+            onDataLoaded(result); setProcessing(false);
+          } catch(err) { setError('Error reading file: ' + err.message); setProcessing(false); }
+        }, (errMsg) => { setError(errMsg); setProcessing(false); });
       };
       reader.readAsArrayBuffer(file);
     } else {
