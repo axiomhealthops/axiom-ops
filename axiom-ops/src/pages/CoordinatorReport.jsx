@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 
@@ -134,6 +135,7 @@ function CoordinatorFormView({ coordinator }) {
 
 export default function CoordinatorReport() {
   const { coordinator, signOut } = useAuth();
+  const navigate = useNavigate();
   const today = new Date().toISOString().split('T')[0];
   const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
@@ -258,7 +260,7 @@ export default function CoordinatorReport() {
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   // Super admin: if Liam is logged in, show coordinator selector + their view
-  const isSuperAdmin = coordinator?.name?.toLowerCase().includes('liam') || coordinator?.role === 'director';
+  const isSuperAdmin = coordinator?.role === 'director';
   const [adminViewMode, setAdminViewMode] = useState('director'); // 'director' | 'coordinator_view'
   const [impersonatedCoordinator, setImpersonatedCoordinator] = useState(null);
   const [allCoordinators, setAllCoordinators] = useState([]);
@@ -277,7 +279,8 @@ export default function CoordinatorReport() {
       <div style={{ minHeight: '100vh', background: '#FBF7F6', fontFamily: "'DM Sans', sans-serif" }}>
         <div style={{ background: '#1A1A1A', padding: '10px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: 12, color: '#fff', fontWeight: 600 }}>👁 Viewing as: {impersonatedCoordinator.name}</div>
-          <button onClick={() => { setAdminViewMode('director'); setImpersonatedCoordinator(null); }} style={{ background: '#D94F2B', border: 'none', borderRadius: 6, color: '#fff', padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>← Back to Director View</button>
+          <button onClick={() => { setAdminViewMode('director'); setImpersonatedCoordinator(null); }} style={{ background: '#D94F2B', border: 'none', borderRadius: 6, color: '#fff', padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>← Back</button>
+          <button onClick={() => navigate('/dashboard')} style={{ background: '#333', border: 'none', borderRadius: 6, color: '#fff', padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>🏠 Director Dashboard</button>
         </div>
         <CoordinatorFormView coordinator={impersonatedCoordinator} />
       </div>
@@ -291,7 +294,7 @@ export default function CoordinatorReport() {
         <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;700&display=swap'); * { box-sizing: border-box; }`}</style>
         <div style={{ background: '#fff', borderBottom: '1px solid #F0E4E0', padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 1px 6px rgba(139,26,16,0.08)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <img src="/logo.png" alt="AxiomHealth" style={{ height: 32, objectFit: 'contain' }} onError={e => e.target.style.display='none'} />
+            <img src="/logo.png" alt="AxiomHealth" style={{ height: 32, objectFit: 'contain' }} onError={e => { e.target.style.display='none'; }} />
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>Care Coordination — Super Admin</div>
               <div style={{ fontSize: 10, color: '#BBA8A4', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</div>
@@ -299,6 +302,7 @@ export default function CoordinatorReport() {
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: '#D94F2B', background: '#FFF5F2', border: '1px solid #FDDDD5', borderRadius: 20, padding: '4px 12px' }}>Super Admin · {coordinator?.name}</span>
+            <button onClick={() => navigate('/dashboard')} style={{ background: 'linear-gradient(135deg, #D94F2B, #8B1A10)', border: 'none', borderRadius: 8, color: '#fff', padding: '6px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>🏠 Dashboard</button>
             <button onClick={signOut} style={{ background: 'none', border: '1px solid #F0E4E0', borderRadius: 8, color: '#BBA8A4', padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>Sign Out</button>
           </div>
         </div>
@@ -363,7 +367,7 @@ export default function CoordinatorReport() {
       {/* Header */}
       <div style={{ background: B.card, borderBottom: `1px solid ${B.border}`, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 50, boxShadow: '0 1px 6px rgba(139,26,16,0.08)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img src="/logo.png" alt="AxiomHealth" style={{ height: 32, objectFit: 'contain' }} onError={e => e.target.style.display='none'} />
+          <img src="/logo.png" alt="AxiomHealth" style={{ height: 32, objectFit: 'contain' }} onError={e => { e.target.style.display='none'; }} />
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: B.black }}>Daily Report</div>
             <div style={{ fontSize: 10, color: B.lightGray, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{todayLabel}</div>
