@@ -79,7 +79,15 @@ function parseParioxCSV(text) {
       visits: data.completed, scheduled: data.scheduled, target: Math.round(VISIT_TARGET / 5)
     }));
 
-  return { completedVisits: completed, missedVisits: missed, scheduledVisits: scheduled, dailyTrend, rowCount: lines.length - 1, regionData };
+  // Count unique patients
+  const patientSet = new Set();
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const cols = parseCSVLine(lines[i]);
+    const patIdx = headers.findIndex(h => h === 'patient');
+    if (patIdx >= 0 && cols[patIdx]) patientSet.add(cols[patIdx]);
+  }
+  return { completedVisits: completed, missedVisits: missed, scheduledVisits: scheduled, dailyTrend, rowCount: lines.length - 1, regionData, uniquePatients: patientSet.size };
 }
 
 // ── Shared components ─────────────────────────────────────────
@@ -224,7 +232,14 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
   for (const [region, data] of Object.entries(regionMap)) {
     regionData[region] = { scheduled: data.scheduled, completed: data.completed, clinicians: data.clinicians.size, patients: data.patients.size, clinicianList: Object.entries(data.clinicianMap).map(([name, d]) => ({ name, scheduled: d.scheduled, completed: d.completed, patients: d.patients.size })) };
   }
-  return { completedVisits: completed, missedVisits: missed, scheduledVisits: scheduled, dailyTrend, rowCount: rows.length - 1, regionData };
+    // Count unique patients
+    const xlsxPatientSet = new Set();
+    for (let i2 = 1; i2 < rows.length; i2++) {
+      const r2 = rows[i2]; if (!r2) continue;
+      const patIdx2 = headersArr.findIndex(h => h === 'patient');
+      if (patIdx2 >= 0 && r2[patIdx2]) xlsxPatientSet.add(String(r2[patIdx2]));
+    }
+    return { completedVisits: completed, missedVisits: missed, scheduledVisits: scheduled, dailyTrend, rowCount: rows.length - 1, regionData, uniquePatients: xlsxPatientSet.size };
   }
 
   function handleFile(file) {
@@ -432,15 +447,25 @@ export default function DirectorDashboard() {
   const handleCSV = data => { setCsvData(data); if (data.completedVisits > 0) setManualVisits(data.completedVisits); try { localStorage.setItem('axiom_pariox_data', JSON.stringify(data)); } catch(e) {} };
 
   const sum = (key, r) => r.reduce((s, x) => s + (x[key] || 0), 0);
-  const totalPatients = sum('active_patients', morningReports);
-  const totalScheduled = sum('visits_scheduled', morningReports);
-  const totalCompleted = sum('visits_completed', eodReports.length > 0 ? eodReports : morningReports);
-  const totalMissed = sum('visits_missed', eodReports);
-  const totalAuthsPending = sum('auths_pending', morningReports);
-  const totalAuthsExpiring = sum('auths_expiring_7d', morningReports);
+  // Use Pariox data when loaded, fall back to coordinator reports
+  // Pariox gives us: patients, today's visits, completion, missed
+  const hasPariox = !!(csvData && csvData.scheduledVisits > 0);
+
+  // Use csvData direct fields for overview — Pariox has weekly totals
+  const totalPatients = hasPariox
+    ? (csvData.uniquePatients || Object.values(csvData.regionData || {}).reduce((s, r) => s + (r.patients || 0), 0))
+    : sum('active_patients', morningReports);
+  const totalScheduled = hasPariox ? (csvData.scheduledVisits || 0) : sum('visits_scheduled', morningReports);
+  const totalCompleted = hasPariox ? (csvData.completedVisits || 0) : sum('visits_completed', eodReports.length > 0 ? eodReports : morningReports);
+  const totalMissed = hasPariox ? (csvData.missedVisits || 0) : sum('visits_missed', eodReports);
+  const totalAuthsPending = sum('auths_pending', morningReports); // still from coordinator reports
+  const totalAuthsExpiring = sum('auths_expiring_7d', morningReports); // still from coordinator reports
   const totalReferrals = sum('new_referrals', morningReports);
   const totalOpenTasks = sum('tasks_open', morningReports);
   const reportsIn = morningReports.length;
+
+  // Source label for UI
+  const dataSource = hasPariox ? `Pariox · ${csvData.rowCount} records` : 'Coordinator Reports';
   const visitPct = Math.min(Math.round((manualVisits / VISIT_TARGET) * 100), 100);
   const visitGap = VISIT_TARGET - manualVisits;
   const trendData = csvData?.dailyTrend?.length > 0 ? csvData.dailyTrend : weeklyData;
@@ -487,7 +512,7 @@ export default function DirectorDashboard() {
             <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 18, padding: '24px 32px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap', boxShadow: '0 1px 6px rgba(139,26,16,0.06)' }}>
               <div style={{ flex: 1, minWidth: 280 }}>
                 <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>
-                  Weekly Visit Target {csvData && <span style={{ color: B.green, fontWeight: 700 }}>· Pariox Data Loaded</span>}
+                  Weekly Visit Target {hasPariox && <span style={{ color: B.green, fontWeight: 700 }}>· {dataSource}</span>}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
                   <input className="visits-input" type="number" value={manualVisits} onChange={e => { const v = parseInt(e.target.value) || 0; setManualVisits(v); try { localStorage.setItem('axiom_manual_visits', v); } catch(e) {} }} />
@@ -511,9 +536,9 @@ export default function DirectorDashboard() {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14 }}>
-              <StatCard icon="👥" label="Patient Census" value={totalPatients || '—'} sub="Total active patients" color={B.red} />
-              <StatCard icon="✅" label="Visits Today" value={totalCompleted || '—'} sub={`of ${totalScheduled || '—'} scheduled`} color={B.green} />
-              <StatCard icon="⚠️" label="Missed Visits" value={totalMissed || 0} sub="Require same-day reschedule" color={totalMissed > 5 ? B.danger : B.yellow} alert={totalMissed > 5 ? 'Above threshold' : null} />
+              <StatCard icon="👥" label="Patient Census" value={totalPatients || '—'} sub={hasPariox ? `${totalPatients} unique patients (Pariox)` : "Total from coordinator reports"} color={B.red} />
+              <StatCard icon="✅" label="Visits Today" value={totalCompleted || '—'} sub={hasPariox ? `of ${totalScheduled} scheduled this week (Pariox)` : `of ${totalScheduled || '—'} scheduled today`} color={B.green} />
+              <StatCard icon="⚠️" label="Missed Visits" value={totalMissed || 0} sub={hasPariox ? "Cancelled/no-show this week" : "Require same-day reschedule"} color={totalMissed > 5 ? B.danger : B.yellow} alert={totalMissed > 5 ? 'Above threshold' : null} />
               <StatCard icon="📋" label="New Referrals" value={totalReferrals || 0} sub="Received today" color={B.darkRed} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
