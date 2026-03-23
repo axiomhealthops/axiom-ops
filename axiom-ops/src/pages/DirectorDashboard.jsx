@@ -79,15 +79,75 @@ function parseParioxCSV(text) {
       visits: data.completed, scheduled: data.scheduled, target: Math.round(VISIT_TARGET / 5)
     }));
 
-  // Count unique patients
+  // Count unique patients + build staff stats + deduplicate visits
   const patientSet = new Set();
+  const staffMap = {};
+  const visitDedupeMap = {}; // key: patient+date, value: array of disciplines
+  const patIdx2 = headers.findIndex(h => h === 'patient');
+  const staffIdx2 = headers.findIndex(h => h === 'staff');
+  const discIdx = headers.findIndex(h => h === 'disc');
+  const regionIdx2 = headers.findIndex(h => h === 'region');
+  const dateIdx2 = headers.findIndex(h => h === 'date');
+  const statusIdx3 = headers.findIndex(h => h.includes('status'));
+
   for (let i = 1; i < lines.length; i++) {
     if (!lines[i].trim()) continue;
     const cols = parseCSVLine(lines[i]);
-    const patIdx = headers.findIndex(h => h === 'patient');
-    if (patIdx >= 0 && cols[patIdx]) patientSet.add(cols[patIdx]);
+    const patient = cols[patIdx2] || '';
+    const staff = cols[staffIdx2] || '';
+    const disc = cols[discIdx] || '';
+    const region = cols[regionIdx2] || '';
+    const dateRaw = cols[dateIdx2] || '';
+    const status = (cols[statusIdx3] || '').toLowerCase();
+    const isComplete = status.startsWith('completed');
+
+    if (patient) patientSet.add(patient);
+
+    // Parse date for deduplication key
+    const dateMatch = dateRaw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    const isoDate = dateMatch ? `${dateMatch[3]}-${dateMatch[1].padStart(2,'0')}-${dateMatch[2].padStart(2,'0')}` : '';
+    const dedupeKey = `${patient}||${isoDate}`;
+
+    if (!visitDedupeMap[dedupeKey]) visitDedupeMap[dedupeKey] = { disciplines: [], completed: false };
+    visitDedupeMap[dedupeKey].disciplines.push(disc);
+    if (isComplete) visitDedupeMap[dedupeKey].completed = true;
+
+    // Build staff stats
+    if (staff) {
+      if (!staffMap[staff]) staffMap[staff] = { name: staff, discipline: disc, primaryRegion: region, totalVisits: 0, completedVisits: 0, patients: new Set(), regions: new Set() };
+      staffMap[staff].totalVisits++;
+      if (isComplete) staffMap[staff].completedVisits++;
+      if (patient) staffMap[staff].patients.add(patient);
+      if (region) staffMap[staff].regions.add(region);
+    }
   }
-  return { completedVisits: completed, missedVisits: missed, scheduledVisits: scheduled, dailyTrend, rowCount: lines.length - 1, regionData, uniquePatients: patientSet.size };
+
+  // Deduplicated visit counts — PT+PTA same patient/date = 1 visit
+  const supervisoryDiscs = ['LYMPHEDEMA PT', 'OT'];
+  let dedupedScheduled = 0, dedupedCompleted = 0;
+  for (const [key, visit] of Object.entries(visitDedupeMap)) {
+    const hasSupervisory = visit.disciplines.some(d => supervisoryDiscs.includes(d));
+    const hasBillable = visit.disciplines.some(d => !supervisoryDiscs.includes(d));
+    // Count as 1 visit if both PT+PTA present — the PTA/COTA is the billable visit
+    // Count as 1 visit if solo clinician
+    if (hasSupervisory && hasBillable) {
+      // Joint visit — count once
+      dedupedScheduled++;
+      if (visit.completed) dedupedCompleted++;
+    } else {
+      // Solo visit — count normally
+      dedupedScheduled++;
+      if (visit.completed) dedupedCompleted++;
+    }
+  }
+
+  // Serialize staffMap (convert Sets to counts)
+  const staffStats = {};
+  for (const [name, data] of Object.entries(staffMap)) {
+    staffStats[name] = { name: data.name, discipline: data.discipline, primaryRegion: data.primaryRegion, totalVisits: data.totalVisits, completedVisits: data.completedVisits, uniquePatients: data.patients.size, regions: Array.from(data.regions) };
+  }
+
+  return { completedVisits: dedupedCompleted, missedVisits: missed, scheduledVisits: dedupedScheduled, rawScheduled: scheduled, rawCompleted: completed, dailyTrend, rowCount: lines.length - 1, regionData, uniquePatients: patientSet.size, staffStats, dedupedCount: dedupedScheduled, rawCount: scheduled };
 }
 
 // ── Shared components ─────────────────────────────────────────
@@ -233,13 +293,51 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
     regionData[region] = { scheduled: data.scheduled, completed: data.completed, clinicians: data.clinicians.size, patients: data.patients.size, clinicianList: Object.entries(data.clinicianMap).map(([name, d]) => ({ name, scheduled: d.scheduled, completed: d.completed, patients: d.patients.size })) };
   }
     // Count unique patients
+    // Build staffStats + deduplication for XLSX
     const xlsxPatientSet = new Set();
+    const xlsxStaffMap = {};
+    const xlsxDedupeMap = {};
+    const xPatIdx = headersArr.findIndex(h => h === 'patient');
+    const xStaffIdx = headersArr.findIndex(h => h === 'staff');
+    const xDiscIdx = headersArr.findIndex(h => h === 'disc');
+    const xRegIdx = headersArr.findIndex(h => h === 'region');
+    const xDateIdx2 = headersArr.findIndex(h => h === 'date');
+
     for (let i2 = 1; i2 < rows.length; i2++) {
-      const r2 = rows[i2]; if (!r2) continue;
-      const patIdx2 = headersArr.findIndex(h => h === 'patient');
-      if (patIdx2 >= 0 && r2[patIdx2]) xlsxPatientSet.add(String(r2[patIdx2]));
+      const r2 = rows[i2]; if (!r2 || !r2.length) continue;
+      const patient = String(r2[xPatIdx] || '');
+      const staff = String(r2[xStaffIdx] || '');
+      const disc = String(r2[xDiscIdx] || '');
+      const region = String(r2[xRegIdx] || '');
+      const dateRaw2 = r2[xDateIdx2];
+      const xStatus = String(r2[statusIdx] || '').toLowerCase();
+      const xComplete = xStatus.startsWith('completed');
+      if (patient) xlsxPatientSet.add(patient);
+      let xIso = '';
+      if (dateRaw2 instanceof Date) { xIso = dateRaw2.toISOString().split('T')[0]; }
+      else if (typeof dateRaw2 === 'string') {
+        const xm = dateRaw2.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (xm) xIso = xm[3]+'-'+xm[1].padStart(2,'0')+'-'+xm[2].padStart(2,'0');
+      }
+      const xKey = patient + '||' + xIso;
+      if (!xlsxDedupeMap[xKey]) xlsxDedupeMap[xKey] = { disciplines: [], completed: false };
+      xlsxDedupeMap[xKey].disciplines.push(disc);
+      if (xComplete) xlsxDedupeMap[xKey].completed = true;
+      if (staff) {
+        if (!xlsxStaffMap[staff]) xlsxStaffMap[staff] = { name: staff, discipline: disc, primaryRegion: region, totalVisits: 0, completedVisits: 0, patients: new Set(), regions: new Set() };
+        xlsxStaffMap[staff].totalVisits++;
+        if (xComplete) xlsxStaffMap[staff].completedVisits++;
+        if (patient) xlsxStaffMap[staff].patients.add(patient);
+        if (region) xlsxStaffMap[staff].regions.add(region);
+      }
     }
-    return { completedVisits: completed, missedVisits: missed, scheduledVisits: scheduled, dailyTrend, rowCount: rows.length - 1, regionData, uniquePatients: xlsxPatientSet.size };
+    let xDedupedSched = Object.keys(xlsxDedupeMap).length;
+    let xDedupedComp = Object.values(xlsxDedupeMap).filter(v => v.completed).length;
+    const xlsxStaffStats = {};
+    for (const [name, data] of Object.entries(xlsxStaffMap)) {
+      xlsxStaffStats[name] = { name: data.name, discipline: data.discipline, primaryRegion: data.primaryRegion, totalVisits: data.totalVisits, completedVisits: data.completedVisits, uniquePatients: data.patients.size, regions: Array.from(data.regions) };
+    }
+    return { completedVisits: xDedupedComp, missedVisits: missed, scheduledVisits: xDedupedSched, rawScheduled: scheduled, rawCompleted: completed, dailyTrend, rowCount: rows.length - 1, regionData, uniquePatients: xlsxPatientSet.size, staffStats: xlsxStaffStats, dedupedCount: xDedupedSched, rawCount: scheduled };
   }
 
   function handleFile(file) {
@@ -417,6 +515,11 @@ export default function DirectorDashboard() {
     };
   });
   const [editingExpansion, setEditingExpansion] = useState(null);
+  const [staffDirectory, setStaffDirectory] = useState(() => {
+    try { const s = localStorage.getItem('axiom_staff_dir'); return s ? JSON.parse(s) : {}; } catch { return {}; }
+  });
+  const [staffFilter, setStaffFilter] = useState('all');
+  const [staffSort, setStaffSort] = useState('visits_desc');
   const [driveLinks, setDriveLinks] = useState(() => { try { return JSON.parse(localStorage.getItem('axiom_drive_links') || '[]'); } catch { return []; } });
 
   useEffect(() => {
@@ -444,7 +547,38 @@ export default function DirectorDashboard() {
 
   const addDriveLink = link => { const u = [...driveLinks, link]; setDriveLinks(u); localStorage.setItem('axiom_drive_links', JSON.stringify(u)); };
   const removeDriveLink = id => { const u = driveLinks.filter(l => l.id !== id); setDriveLinks(u); localStorage.setItem('axiom_drive_links', JSON.stringify(u)); };
-  const handleCSV = data => { setCsvData(data); if (data.completedVisits > 0) setManualVisits(data.completedVisits); try { localStorage.setItem('axiom_pariox_data', JSON.stringify(data)); } catch(e) {} };
+  const handleCSV = data => {
+    setCsvData(data);
+    if (data.completedVisits > 0) setManualVisits(data.completedVisits);
+    try { localStorage.setItem('axiom_pariox_data', JSON.stringify(data)); } catch(e) {}
+
+    // Auto-populate staff directory from Pariox staffStats
+    if (data.staffStats) {
+      setStaffDirectory(prev => {
+        const updated = { ...prev };
+        Object.entries(data.staffStats).forEach(([name, stats]) => {
+          if (!updated[name]) {
+            // New clinician — seed with Pariox data, default employment type by visit count
+            updated[name] = {
+              name,
+              discipline: stats.discipline,
+              primaryRegion: stats.primaryRegion,
+              employmentType: stats.totalVisits >= 20 ? 'full_time' : 'part_time',
+              workType: ['LYMPHEDEMA PT', 'OT'].includes(stats.discipline) ? 'telehealth' : 'in_person',
+              status: 'active',
+              minVisits: stats.totalVisits >= 20 ? 24 : 15,
+              notes: '',
+            };
+          } else {
+            // Existing — update Pariox-derived stats only
+            updated[name] = { ...updated[name], discipline: stats.discipline, primaryRegion: stats.primaryRegion };
+          }
+        });
+        try { localStorage.setItem('axiom_staff_dir', JSON.stringify(updated)); } catch(e) {}
+        return updated;
+      });
+    }
+  };
 
   const sum = (key, r) => r.reduce((s, x) => s + (x[key] || 0), 0);
   // Use Pariox data when loaded, fall back to coordinator reports
@@ -469,7 +603,7 @@ export default function DirectorDashboard() {
   const visitPct = Math.min(Math.round((manualVisits / VISIT_TARGET) * 100), 100);
   const visitGap = VISIT_TARGET - manualVisits;
   const trendData = csvData?.dailyTrend?.length > 0 ? csvData.dailyTrend : weeklyData;
-  const tabs = ['overview', 'scorecard', 'expansion', 'regions', 'team', 'trends', 'reports', 'data'];
+  const tabs = ['overview', 'scorecard', 'expansion', 'staff', 'regions', 'team', 'trends', 'reports', 'data'];
 
   if (loading) return <div style={{ minHeight: '100vh', background: B.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: B.lightGray, fontFamily: 'DM Sans, sans-serif' }}>Loading...</div>;
 
@@ -559,6 +693,267 @@ export default function DirectorDashboard() {
           </>
         )}
 
+
+
+        {/* ── STAFF DIRECTORY ─────────────────────────────────── */}
+        {activeTab === 'staff' && (() => {
+          const FT_MIN = 24;
+          const PT_MIN = 15;
+
+          // Merge Pariox staffStats with saved directory settings
+          const allStaff = Object.keys(staffDirectory).length > 0
+            ? Object.values(staffDirectory).map(dir => ({
+                ...dir,
+                ...(csvData?.staffStats?.[dir.name] || {}),
+                // Use saved settings
+                employmentType: dir.employmentType || 'full_time',
+                workType: dir.workType || 'in_person',
+                status: dir.status || 'active',
+                minVisits: dir.employmentType === 'part_time' ? PT_MIN : FT_MIN,
+              }))
+            : csvData?.staffStats
+              ? Object.values(csvData.staffStats).map(s => ({
+                  ...s,
+                  employmentType: s.totalVisits >= 20 ? 'full_time' : 'part_time',
+                  workType: ['LYMPHEDEMA PT','OT'].includes(s.discipline) ? 'telehealth' : 'in_person',
+                  status: 'active',
+                  minVisits: s.totalVisits >= 20 ? FT_MIN : PT_MIN,
+                  notes: '',
+                }))
+              : [];
+
+          const activeStaff = allStaff.filter(s => s.status === 'active');
+
+          // Productivity status
+          const getProdStatus = (s) => {
+            const min = s.employmentType === 'part_time' ? PT_MIN : FT_MIN;
+            if (s.totalVisits >= min) return 'meeting';
+            if (s.totalVisits >= min * 0.75) return 'close';
+            return 'below';
+          };
+          const prodColors = { meeting: B.green, close: B.yellow, below: B.danger };
+          const prodBg = { meeting: '#F0FDF4', close: '#FFFBEB', below: '#FEF2F2' };
+          const prodLabel = { meeting: 'Meeting Target', close: 'Near Target', below: 'Below Minimum' };
+
+          // Filter + sort
+          const filtered = activeStaff.filter(s => {
+            if (staffFilter === 'below') return getProdStatus(s) === 'below';
+            if (staffFilter === 'ft') return s.employmentType === 'full_time';
+            if (staffFilter === 'pt') return s.employmentType === 'part_time';
+            if (staffFilter === 'telehealth') return s.workType === 'telehealth';
+            return true;
+          });
+
+          const sorted = [...filtered].sort((a, b) => {
+            if (staffSort === 'visits_desc') return (b.totalVisits||0) - (a.totalVisits||0);
+            if (staffSort === 'visits_asc') return (a.totalVisits||0) - (b.totalVisits||0);
+            if (staffSort === 'name') return a.name.localeCompare(b.name);
+            if (staffSort === 'region') return (a.primaryRegion||'').localeCompare(b.primaryRegion||'');
+            return 0;
+          });
+
+          const saveStaff = (name, updates) => {
+            const updated = { ...staffDirectory, [name]: { ...(staffDirectory[name] || {}), name, ...updates } };
+            setStaffDirectory(updated);
+            try { localStorage.setItem('axiom_staff_dir', JSON.stringify(updated)); } catch(e) {}
+          };
+
+          // Summary stats
+          const belowMin = activeStaff.filter(s => getProdStatus(s) === 'below').length;
+          const meetingMin = activeStaff.filter(s => getProdStatus(s) === 'meeting').length;
+          const ftCount = activeStaff.filter(s => s.employmentType === 'full_time').length;
+          const ptCount = activeStaff.filter(s => s.employmentType === 'part_time').length;
+          const telehealthCount = activeStaff.filter(s => s.workType === 'telehealth').length;
+
+          return (
+            <div>
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>Staff Directory & Productivity</div>
+                  <div style={{ fontSize: 13, color: B.gray }}>
+                    {csvData ? `${activeStaff.length} active clinicians from Pariox · FT minimum: ${FT_MIN} visits/wk · PT minimum: ${PT_MIN} visits/wk` : 'Upload a Pariox export to populate staff data'}
+                  </div>
+                </div>
+                {csvData?.rawCount && csvData.rawCount !== csvData.dedupedCount && (
+                  <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10, padding: '10px 16px', textAlign: 'right' }}>
+                    <div style={{ fontSize: 11, color: '#1565C0', fontWeight: 700, marginBottom: 2 }}>✓ Visit Deduplication Active</div>
+                    <div style={{ fontSize: 11, color: B.gray }}>{csvData.rawCount} raw rows → {csvData.dedupedCount} true visits</div>
+                    <div style={{ fontSize: 11, color: B.gray }}>{csvData.rawCount - csvData.dedupedCount} PT+PTA joint visits corrected</div>
+                  </div>
+                )}
+              </div>
+
+              {!csvData ? (
+                <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '48px 24px', textAlign: 'center', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                  <div style={{ fontSize: 36, marginBottom: 12 }}>👥</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: B.black, marginBottom: 8 }}>No staff data loaded</div>
+                  <div style={{ fontSize: 13, color: B.gray, marginBottom: 20 }}>Upload a Pariox export to auto-populate your staff directory</div>
+                  <button onClick={() => setActiveTab('data')} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 8, color: '#fff', padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Go to Data Tab →</button>
+                </div>
+              ) : (
+                <>
+                  {/* Summary cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
+                    {[
+                      { label: 'Total Active', value: activeStaff.length, color: B.red, icon: '👥' },
+                      { label: 'Full Time', value: ftCount, color: B.black, icon: '⏰' },
+                      { label: 'Part Time', value: ptCount, color: B.orange, icon: '🕐' },
+                      { label: 'Meeting Target', value: meetingMin, color: B.green, icon: '✅' },
+                      { label: 'Below Minimum', value: belowMin, color: belowMin > 0 ? B.danger : B.green, icon: belowMin > 0 ? '⚠️' : '✓' },
+                    ].map(m => (
+                      <div key={m.label} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 12, padding: '14px 16px', textAlign: 'center', boxShadow: '0 1px 3px rgba(139,26,16,0.05)' }}>
+                        <div style={{ fontSize: 10, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>{m.icon} {m.label}</div>
+                        <div style={{ fontSize: 26, fontWeight: 800, color: m.color, fontFamily: "'DM Mono', monospace" }}>{m.value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Filters + Sort */}
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+                    {[
+                      { key: 'all', label: 'All Staff' },
+                      { key: 'below', label: `⚠ Below Minimum (${belowMin})` },
+                      { key: 'ft', label: 'Full Time' },
+                      { key: 'pt', label: 'Part Time' },
+                      { key: 'telehealth', label: 'Telehealth' },
+                    ].map(f => (
+                      <button key={f.key} onClick={() => setStaffFilter(f.key)} style={{
+                        padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        fontFamily: 'inherit', border: 'none',
+                        background: staffFilter === f.key ? `linear-gradient(135deg, ${B.red}, ${B.darkRed})` : B.cardBg,
+                        color: staffFilter === f.key ? '#fff' : B.gray,
+                        boxShadow: staffFilter === f.key ? '0 2px 8px rgba(217,79,43,0.25)' : '0 1px 3px rgba(0,0,0,0.08)',
+                      }}>{f.label}</button>
+                    ))}
+                    <select value={staffSort} onChange={e => setStaffSort(e.target.value)} style={{ marginLeft: 'auto', padding: '7px 12px', borderRadius: 8, border: `1px solid ${B.border}`, fontSize: 12, fontFamily: 'inherit', color: B.black, background: '#fff', cursor: 'pointer', outline: 'none' }}>
+                      <option value="visits_desc">Sort: Most Visits</option>
+                      <option value="visits_asc">Sort: Least Visits</option>
+                      <option value="name">Sort: Name A-Z</option>
+                      <option value="region">Sort: Region</option>
+                    </select>
+                  </div>
+
+                  {/* Staff table */}
+                  <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, overflow: 'hidden', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                    {/* Header */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '200px 130px 90px 90px 80px 80px 80px 100px 1fr', padding: '10px 20px', background: '#FBF7F6', borderBottom: `1px solid ${B.border}` }}>
+                      {['Clinician','Discipline','Region','Type','Visits','Min','Status','Employment','Progress'].map((h,i) => (
+                        <div key={h} style={{ fontSize: 10, color: B.lightGray, letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: i > 2 ? 'center' : 'left' }}>{h}</div>
+                      ))}
+                    </div>
+
+                    {sorted.length === 0 && (
+                      <div style={{ padding: '30px', textAlign: 'center', color: B.lightGray, fontSize: 13 }}>No staff match this filter</div>
+                    )}
+
+                    {sorted.map((s, idx) => {
+                      const min = s.employmentType === 'part_time' ? PT_MIN : FT_MIN;
+                      const prodStatus = getProdStatus(s);
+                      const pct = min > 0 ? Math.min(Math.round((s.totalVisits || 0) / min * 100), 100) : 0;
+                      const isTelehealth = s.workType === 'telehealth';
+                      const discColor = ['LYMPHEDEMA PT','OT'].includes(s.discipline) ? '#1565C0' : B.red;
+
+                      return (
+                        <div key={s.name} style={{ display: 'grid', gridTemplateColumns: '200px 130px 90px 90px 80px 80px 80px 100px 1fr', padding: '12px 20px', borderBottom: idx < sorted.length-1 ? `1px solid #FAF4F2` : 'none', alignItems: 'center', background: prodStatus === 'below' ? '#FFFAFA' : '#fff' }}>
+
+                          {/* Name */}
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: B.black }}>{s.name}</div>
+                            {s.notes && <div style={{ fontSize: 10, color: B.lightGray, marginTop: 2 }}>{s.notes}</div>}
+                          </div>
+
+                          {/* Discipline */}
+                          <div style={{ fontSize: 11, fontWeight: 600, color: discColor, background: `${discColor}10`, border: `1px solid ${discColor}25`, borderRadius: 6, padding: '3px 8px', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.discipline}</div>
+
+                          {/* Region */}
+                          <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 700, color: B.red, fontFamily: "'DM Mono', monospace" }}>{s.primaryRegion || '—'}</div>
+
+                          {/* Work type toggle */}
+                          <div style={{ textAlign: 'center' }}>
+                            <button onClick={() => saveStaff(s.name, { ...s, workType: s.workType === 'telehealth' ? 'in_person' : 'telehealth' })}
+                              style={{ fontSize: 10, fontWeight: 700, padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                                background: isTelehealth ? '#EFF6FF' : '#FFF5F2',
+                                color: isTelehealth ? '#1565C0' : B.red }}>
+                              {isTelehealth ? '📱 Telehealth' : '🏠 In-Person'}
+                            </button>
+                          </div>
+
+                          {/* Visits this week */}
+                          <div style={{ textAlign: 'center', fontSize: 16, fontWeight: 800, color: prodColors[prodStatus], fontFamily: "'DM Mono', monospace" }}>{s.totalVisits || 0}</div>
+
+                          {/* Minimum */}
+                          <div style={{ textAlign: 'center', fontSize: 13, color: B.lightGray, fontFamily: "'DM Mono', monospace" }}>{min}</div>
+
+                          {/* Productivity status */}
+                          <div style={{ textAlign: 'center' }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 6,
+                              background: prodBg[prodStatus], color: prodColors[prodStatus] }}>
+                              {prodStatus === 'meeting' ? '✓' : prodStatus === 'close' ? '~' : '↓'} {prodLabel[prodStatus]}
+                            </span>
+                          </div>
+
+                          {/* Employment type toggle */}
+                          <div style={{ textAlign: 'center' }}>
+                            <button onClick={() => saveStaff(s.name, { ...s, employmentType: s.employmentType === 'full_time' ? 'part_time' : 'full_time', minVisits: s.employmentType === 'full_time' ? PT_MIN : FT_MIN })}
+                              style={{ fontSize: 10, fontWeight: 700, padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                                background: s.employmentType === 'full_time' ? '#F0FDF4' : '#FFFBEB',
+                                color: s.employmentType === 'full_time' ? B.green : B.yellow }}>
+                              {s.employmentType === 'full_time' ? 'Full Time' : 'Part Time'}
+                            </button>
+                          </div>
+
+                          {/* Progress bar */}
+                          <div style={{ paddingLeft: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <div style={{ flex: 1, height: 6, background: '#F5EDEB', borderRadius: 3 }}>
+                                <div style={{ height: '100%', width: `${pct}%`, borderRadius: 3, background: prodColors[prodStatus], transition: 'width 0.5s ease' }} />
+                              </div>
+                              <span style={{ fontSize: 10, color: B.lightGray, fontFamily: 'monospace', width: 30 }}>{pct}%</span>
+                            </div>
+                            {prodStatus === 'below' && (
+                              <div style={{ fontSize: 10, color: B.danger, marginTop: 3 }}>Needs {min - (s.totalVisits||0)} more visits</div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Productivity summary by discipline */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 14, marginTop: 16 }}>
+                    {['LYMPHEDEMA PTA','COTA','LYMPHEDEMA PT','OT'].map(disc => {
+                      const discStaff = activeStaff.filter(s => s.discipline === disc);
+                      if (discStaff.length === 0) return null;
+                      const avgVisits = discStaff.length > 0 ? Math.round(discStaff.reduce((s,c) => s+(c.totalVisits||0), 0) / discStaff.length) : 0;
+                      const belowCount = discStaff.filter(s => getProdStatus(s) === 'below').length;
+                      return (
+                        <div key={disc} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 12, padding: '16px 20px', boxShadow: '0 1px 3px rgba(139,26,16,0.05)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: B.black }}>{disc}</div>
+                            <div style={{ fontSize: 11, color: B.lightGray }}>{discStaff.length} clinicians</div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+                            {[
+                              { label: 'Avg Visits', value: avgVisits, color: B.red },
+                              { label: 'Below Min', value: belowCount, color: belowCount > 0 ? B.danger : B.green },
+                              { label: 'Total Visits', value: discStaff.reduce((s,c)=>s+(c.totalVisits||0),0), color: B.black },
+                            ].map(m => (
+                              <div key={m.label} style={{ textAlign: 'center', background: '#FBF7F6', borderRadius: 8, padding: '8px' }}>
+                                <div style={{ fontSize: 18, fontWeight: 800, color: m.color, fontFamily: "'DM Mono', monospace" }}>{m.value}</div>
+                                <div style={{ fontSize: 9, color: B.lightGray, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 2 }}>{m.label}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── REGIONS ─────────────────────────────────────────── */}
         {activeTab === 'regions' && (
