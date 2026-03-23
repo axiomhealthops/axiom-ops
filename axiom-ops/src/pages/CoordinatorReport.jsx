@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 
@@ -107,6 +107,27 @@ function TextArea({ label, value, onChange, placeholder, rows = 3 }) {
       <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: B.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>{label}</label>
       <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={rows}
         style={{ width: '100%', background: B.card, border: `1.5px solid ${B.border}`, borderRadius: 10, color: B.black, padding: '10px 14px', fontSize: 13, fontFamily: "'DM Sans', sans-serif", outline: 'none', resize: 'vertical', lineHeight: 1.6, boxSizing: 'border-box' }} />
+    </div>
+  );
+}
+
+// CoordinatorFormView — renders the coordinator form for a given coordinator (used by super admin)
+function CoordinatorFormView({ coordinator }) {
+  // Re-uses the same form logic but with an injected coordinator prop
+  // This is a read-only preview — super admin can see the form layout
+  return (
+    <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
+      <div style={{ background: '#fff', border: '1px solid #F0E4E0', borderRadius: 16, padding: '24px', textAlign: 'center', color: '#8B6B64' }}>
+        <div style={{ fontSize: 20, marginBottom: 12 }}>📋</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A', marginBottom: 8 }}>Coordinator Form Preview: {coordinator.name}</div>
+        <div style={{ fontSize: 13, color: '#8B6B64', marginBottom: 16 }}>This shows the form exactly as {coordinator.name} sees it. Submissions appear in the director Reports tab in real time.</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, textAlign: 'left', background: '#FBF7F6', borderRadius: 10, padding: '16px' }}>
+          {['✅ Daily Checklist (5 items)', '📋 Charts & Census Entry', '📞 Call Activity Tracking', '🚨 Escalation Log', '🔄 Activation Review Results', '📝 Daily Narrative & Self-Assessment'].map(s => (
+            <div key={s} style={{ fontSize: 13, color: '#1A1A1A', padding: '8px 12px', background: '#fff', borderRadius: 8, border: '1px solid #F0E4E0' }}>{s}</div>
+          ))}
+        </div>
+        <div style={{ marginTop: 16, fontSize: 12, color: '#BBA8A4' }}>Full form interaction available when logged in as coordinator · Region {coordinator.region}</div>
+      </div>
     </div>
   );
 }
@@ -235,6 +256,99 @@ export default function CoordinatorReport() {
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
+  // Super admin: if Liam is logged in, show coordinator selector + their view
+  const isSuperAdmin = coordinator?.name?.toLowerCase().includes('liam') || coordinator?.role === 'director';
+  const [adminViewMode, setAdminViewMode] = useState('director'); // 'director' | 'coordinator_view'
+  const [impersonatedCoordinator, setImpersonatedCoordinator] = useState(null);
+  const [allCoordinators, setAllCoordinators] = useState([]);
+
+  useEffect(() => {
+    if (isSuperAdmin) {
+      supabase.from('coordinators').select('*').neq('role','director').order('name').then(({data}) => {
+        if (data) setAllCoordinators(data);
+      });
+    }
+  }, [isSuperAdmin]);
+
+  // If super admin in coordinator view mode, render coordinator form for that person
+  if (isSuperAdmin && adminViewMode === 'coordinator_view' && impersonatedCoordinator) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#FBF7F6', fontFamily: "'DM Sans', sans-serif" }}>
+        <div style={{ background: '#1A1A1A', padding: '10px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 12, color: '#fff', fontWeight: 600 }}>👁 Viewing as: {impersonatedCoordinator.name}</div>
+          <button onClick={() => { setAdminViewMode('director'); setImpersonatedCoordinator(null); }} style={{ background: '#D94F2B', border: 'none', borderRadius: 6, color: '#fff', padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>← Back to Director View</button>
+        </div>
+        <CoordinatorFormView coordinator={impersonatedCoordinator} />
+      </div>
+    );
+  }
+
+  // Super admin dashboard — shows all coordinator cards + can preview their forms
+  if (isSuperAdmin) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#FBF7F6', fontFamily: "'DM Sans', sans-serif", paddingBottom: 60 }}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;700&display=swap'); * { box-sizing: border-box; }`}</style>
+        <div style={{ background: '#fff', borderBottom: '1px solid #F0E4E0', padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 1px 6px rgba(139,26,16,0.08)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <img src="/logo.png" alt="AxiomHealth" style={{ height: 32, objectFit: 'contain' }} onError={e => e.target.style.display='none'} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>Care Coordination — Super Admin</div>
+              <div style={{ fontSize: 10, color: '#BBA8A4', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#D94F2B', background: '#FFF5F2', border: '1px solid #FDDDD5', borderRadius: 20, padding: '4px 12px' }}>Super Admin · {coordinator?.name}</span>
+            <button onClick={signOut} style={{ background: 'none', border: '1px solid #F0E4E0', borderRadius: 8, color: '#BBA8A4', padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>Sign Out</button>
+          </div>
+        </div>
+
+        <div style={{ maxWidth: 900, margin: '24px auto', padding: '0 16px' }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: '#1A1A1A', marginBottom: 6 }}>Team Daily Reports</div>
+          <div style={{ fontSize: 13, color: '#8B6B64', marginBottom: 24 }}>View any coordinator's checklist status and form, or preview their entry interface</div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+            {allCoordinators.map(coord => {
+              const today = new Date().toISOString().split('T')[0];
+              const checklistKey = `checklist_${today}`;
+              return (
+                <div key={coord.id} style={{ background: '#fff', border: '1px solid #F0E4E0', borderRadius: 16, overflow: 'hidden', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                  <div style={{ background: 'linear-gradient(135deg, #8B1A10, #D94F2B)', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>{coord.name}</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>Region {coord.region}</div>
+                    </div>
+                    <button onClick={() => { setImpersonatedCoordinator(coord); setAdminViewMode('coordinator_view'); }}
+                      style={{ background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)', borderRadius: 8, color: '#fff', padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                      👁 View Their Form
+                    </button>
+                  </div>
+                  <div style={{ padding: '16px 20px' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#1A1A1A', marginBottom: 10 }}>Daily Checklist Status</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {CHECKLIST.map(item => {
+                        // Note: coordinator checklist is stored in their own browser localStorage
+                        // Director can see what was submitted in their EOD report
+                        return (
+                          <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #FAF4F2' }}>
+                            <span style={{ fontSize: 12, color: '#1A1A1A' }}>{item.title}</span>
+                            <span style={{ fontSize: 10, color: '#BBA8A4', fontStyle: 'italic' }}>{item.time}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ marginTop: 12, fontSize: 11, color: '#BBA8A4', textAlign: 'center', padding: '8px', background: '#FBF7F6', borderRadius: 6 }}>
+                      ℹ Checklist completion visible in Reports tab when EOD is submitted
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: B.bg, fontFamily: "'DM Sans', sans-serif", color: B.black, paddingBottom: 80 }}>
