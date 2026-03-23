@@ -174,7 +174,7 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
     }
   }, []);
 
-  function processRows(rows, statusIdx, dateIdx) {
+  function processRows(rows, headersArr, statusIdx, dateIdx) {
     let completed = 0, missed = 0, scheduled = 0;
     const dailyMap = {};
     for (let i = 1; i < rows.length; i++) {
@@ -204,15 +204,14 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
   const regionMap = {};
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i]; if (!row || !row.length) continue;
-    const regionIdx = headers.findIndex(h => h === 'region');
-    const staffIdx = headers.findIndex(h => h === 'staff');
-    const patientIdx = headers.findIndex(h => h === 'patient');
-    const statusIdx2 = headers.findIndex(h => h.includes('status'));
+    const regionIdx = headersArr.findIndex(h => h === 'region');
+    const staffIdx = headersArr.findIndex(h => h === 'staff');
+    const patientIdx = headersArr.findIndex(h => h === 'patient');
     if (regionIdx === -1) continue;
     const region = String(row[regionIdx] || '').trim();
     const staff = String(row[staffIdx] || '').trim();
     const patient = String(row[patientIdx] || '').trim();
-    const status = String(row[statusIdx2] || '').toLowerCase().trim();
+      const status = String(row[statusIdx] || '').toLowerCase().trim();
     const isComplete = status.startsWith('completed');
     if (!region) continue;
     if (!regionMap[region]) regionMap[region] = { scheduled: 0, completed: 0, clinicians: new Set(), patients: new Set(), clinicianMap: {} };
@@ -247,7 +246,7 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
           const statusIdx = headers.findIndex(h => h.includes('status'));
           const dateIdx = headers.findIndex(h => h === 'date');
           if (statusIdx === -1) { setError('Could not find Status column. Make sure this is a Pariox export.'); setProcessing(false); return; }
-          const result = processRows(rows, statusIdx, dateIdx);
+          const result = processRows(rows, headers, statusIdx, dateIdx);
           setLastFile(file.name);
           onDataLoaded(result);
           setProcessing(false);
