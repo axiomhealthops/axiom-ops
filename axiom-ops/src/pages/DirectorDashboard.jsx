@@ -931,27 +931,17 @@ export default function DirectorDashboard() {
 
   // Source label for UI
   const dataSource = hasPariox ? `Pariox · ${csvData.rowCount} records` : 'Coordinator Reports';
-  const visitPct = Math.min(Math.round((manualVisits / CFG.visitTarget) * 100), 100);
-  const visitGap = CFG.visitTarget - manualVisits;
-  const trendData = csvData?.dailyTrend?.length > 0 ? csvData.dailyTrend : weeklyData;
-  const tabs = ['overview', 'revenue', 'scorecard', 'expansion', 'staff', 'regions', 'team', 'trends', 'reports', 'data', '⚙️'];
-
-  // ── Admin Settings (editable by director, persisted to localStorage) ──
+  const DEFAULT_SETTINGS = {
+    visitTarget: 800, revenueTarget: 200000, avgReimbursement: 90,
+    activeCensusTarget: 500, coordinatorCap: 80, authRiskVisitsPerWeek: 3, adminPin: '1234',
+  };
   const [settings, setSettings] = useState(() => {
     try {
       const s = localStorage.getItem('axiom_settings');
-      return s ? JSON.parse(s) : null;
-    } catch { return null; }
-  }) || {
-    visitTarget: 800,
-    revenueTarget: 200000,
-    avgReimbursement: 90,
-    activeCensusTarget: 500,
-    coordinatorCap: 80,
-    authRiskVisitsPerWeek: 3,
-    adminPin: '1234',
-  };
-
+      const parsed = s ? JSON.parse(s) : null;
+      return parsed || DEFAULT_SETTINGS;
+    } catch { return DEFAULT_SETTINGS; }
+  });
   const [adminUnlocked, setAdminUnlocked] = useState(false);
   const [adminPinInput, setAdminPinInput] = useState('');
   const [adminPinError, setAdminPinError] = useState(false);
@@ -967,6 +957,11 @@ export default function DirectorDashboard() {
     visitTarget: 800, revenueTarget: 200000, avgReimbursement: 90,
     activeCensusTarget: 500, coordinatorCap: 80, authRiskVisitsPerWeek: 3, adminPin: '1234'
   };
+
+  const visitPct = Math.min(Math.round((manualVisits / CFG.visitTarget) * 100), 100);
+  const visitGap = CFG.visitTarget - manualVisits;
+  const trendData = csvData?.dailyTrend?.length > 0 ? csvData.dailyTrend : weeklyData;
+  const tabs = ['overview', 'revenue', 'scorecard', 'expansion', 'staff', 'regions', 'team', 'trends', 'reports', 'data', '⚙️'];
 
   if (loading) return <div style={{ minHeight: '100vh', background: B.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: B.lightGray, fontFamily: 'DM Sans, sans-serif' }}>Loading...</div>;
 
