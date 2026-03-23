@@ -388,6 +388,20 @@ export default function DirectorDashboard() {
   const [manualVisits, setManualVisits] = useState(() => { try { return parseInt(localStorage.getItem('axiom_manual_visits') || '650'); } catch { return 650; } });
   const [csvData, setCsvData] = useState(() => { try { const s = localStorage.getItem('axiom_pariox_data'); return s ? JSON.parse(s) : null; } catch { return null; } });
   const [selectedRegion, setSelectedRegion] = useState(null);
+  const [directorNotes, setDirectorNotes] = useState(() => { try { return JSON.parse(localStorage.getItem('axiom_director_notes') || '[]'); } catch { return []; } });
+  const [newNote, setNewNote] = useState('');
+  const [expansionData, setExpansionData] = useState(() => {
+    try {
+      const saved = localStorage.getItem('axiom_expansion');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      GA: { state: 'Georgia', status: 'In Progress', credentialing: 60, staffHired: 2, staffNeeded: 4, firstPatientDate: '2026-05-01', weeklyVisitTarget: 80, currentVisits: 0, revenueContribution: 0, notes: '' },
+      TX: { state: 'Texas', status: 'Planning', credentialing: 20, staffHired: 0, staffNeeded: 6, firstPatientDate: '2026-07-01', weeklyVisitTarget: 120, currentVisits: 0, revenueContribution: 0, notes: '' },
+      NC: { state: 'North Carolina', status: 'Planning', credentialing: 10, staffHired: 0, staffNeeded: 3, firstPatientDate: '2026-08-01', weeklyVisitTarget: 60, currentVisits: 0, revenueContribution: 0, notes: '' },
+    };
+  });
+  const [editingExpansion, setEditingExpansion] = useState(null);
   const [driveLinks, setDriveLinks] = useState(() => { try { return JSON.parse(localStorage.getItem('axiom_drive_links') || '[]'); } catch { return []; } });
 
   useEffect(() => {
@@ -430,7 +444,7 @@ export default function DirectorDashboard() {
   const visitPct = Math.min(Math.round((manualVisits / VISIT_TARGET) * 100), 100);
   const visitGap = VISIT_TARGET - manualVisits;
   const trendData = csvData?.dailyTrend?.length > 0 ? csvData.dailyTrend : weeklyData;
-  const tabs = ['overview', 'regions', 'team', 'trends', 'reports', 'data'];
+  const tabs = ['overview', 'scorecard', 'expansion', 'regions', 'team', 'trends', 'reports', 'data'];
 
   if (loading) return <div style={{ minHeight: '100vh', background: B.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: B.lightGray, fontFamily: 'DM Sans, sans-serif' }}>Loading...</div>;
 
@@ -744,6 +758,326 @@ export default function DirectorDashboard() {
             })}
           </div>
         )}
+
+
+        {/* ── SCORECARD ───────────────────────────────────────── */}
+        {activeTab === 'scorecard' && (() => {
+          const kpis = [
+            {
+              label: 'Weekly Visits', value: manualVisits, target: VISIT_TARGET,
+              pct: Math.round(manualVisits/VISIT_TARGET*100),
+              status: manualVisits >= VISIT_TARGET ? 'green' : manualVisits >= VISIT_TARGET*0.8 ? 'yellow' : 'red',
+              sub: `${VISIT_TARGET - manualVisits > 0 ? VISIT_TARGET - manualVisits + ' below target' : 'Target met ✓'}`,
+              icon: '📅'
+            },
+            {
+              label: 'Census', value: totalPatients || '—', target: '320+',
+              pct: totalPatients ? Math.min(Math.round(totalPatients/320*100),100) : 0,
+              status: totalPatients >= 280 ? 'green' : totalPatients >= 200 ? 'yellow' : 'red',
+              sub: totalPatients ? `${totalPatients} active patients` : 'Submit morning reports',
+              icon: '👥'
+            },
+            {
+              label: 'Visit Completion Rate', value: totalScheduled > 0 ? `${Math.round(totalCompleted/totalScheduled*100)}%` : '—', target: '90%+',
+              pct: totalScheduled > 0 ? Math.round(totalCompleted/totalScheduled*100) : 0,
+              status: totalScheduled > 0 && (totalCompleted/totalScheduled) >= 0.9 ? 'green' : totalScheduled > 0 && (totalCompleted/totalScheduled) >= 0.75 ? 'yellow' : 'red',
+              sub: `${totalCompleted} of ${totalScheduled} visits completed`,
+              icon: '✅'
+            },
+            {
+              label: 'Auth Expiry Risk', value: totalAuthsExpiring, target: '0',
+              pct: Math.max(0, 100 - (totalAuthsExpiring * 10)),
+              status: totalAuthsExpiring === 0 ? 'green' : totalAuthsExpiring <= 3 ? 'yellow' : 'red',
+              sub: `${totalAuthsExpiring} auths expiring within 7 days`,
+              icon: '⏰'
+            },
+            {
+              label: 'Morning Reports', value: `${reportsIn}/${coordinators.length}`, target: `${coordinators.length}/${coordinators.length}`,
+              pct: coordinators.length > 0 ? Math.round(reportsIn/coordinators.length*100) : 0,
+              status: reportsIn === coordinators.length ? 'green' : reportsIn >= coordinators.length*0.75 ? 'yellow' : 'red',
+              sub: reportsIn < coordinators.length ? `${coordinators.length - reportsIn} coordinators not reporting` : 'All reports received',
+              icon: '📊'
+            },
+            {
+              label: 'Missed Visits', value: totalMissed, target: '< 5/day',
+              pct: Math.max(0, 100 - (totalMissed * 10)),
+              status: totalMissed <= 2 ? 'green' : totalMissed <= 5 ? 'yellow' : 'red',
+              sub: totalMissed > 0 ? `${totalMissed} visits need same-day reschedule` : 'No missed visits today',
+              icon: '⚠️'
+            },
+            {
+              label: 'Expansion Progress', value: '3 States', target: 'Live by Q3',
+              pct: Math.round((Object.values(expansionData).reduce((s,e) => s + e.credentialing, 0) / (Object.keys(expansionData).length * 100)) * 100),
+              status: 'yellow',
+              sub: `GA ${expansionData.GA?.credentialing||0}% · TX ${expansionData.TX?.credentialing||0}% · NC ${expansionData.NC?.credentialing||0}%`,
+              icon: '🗺️'
+            },
+          ];
+          const statusColors = { green: B.green, yellow: B.yellow, red: B.danger };
+          const statusBg = { green: '#F0FDF4', yellow: '#FFFBEB', red: '#FEF2F2' };
+          const statusBorder = { green: '#BBF7D0', yellow: '#FDE68A', red: '#FECACA' };
+          const weekStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const greenCount = kpis.filter(k => k.status === 'green').length;
+          const redCount = kpis.filter(k => k.status === 'red').length;
+
+          return (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>Weekly KPI Scorecard</div>
+                  <div style={{ fontSize: 13, color: B.gray }}>Week of {weekStr} — your 90-second Monday morning check</div>
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '8px 14px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: B.green, fontFamily: "'DM Mono', monospace" }}>{greenCount}</div>
+                    <div style={{ fontSize: 10, color: B.lightGray, textTransform: 'uppercase', letterSpacing: '0.08em' }}>On Track</div>
+                  </div>
+                  <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 14px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: B.danger, fontFamily: "'DM Mono', monospace" }}>{redCount}</div>
+                    <div style={{ fontSize: 10, color: B.lightGray, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Needs Action</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* KPI Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, marginBottom: 24 }}>
+                {kpis.map(kpi => (
+                  <div key={kpi.label} style={{ background: statusBg[kpi.status], border: `1px solid ${statusBorder[kpi.status]}`, borderRadius: 14, padding: '20px 24px', position: 'relative', overflow: 'hidden' }}>
+                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: statusColors[kpi.status] }} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                      <div>
+                        <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>{kpi.icon} {kpi.label}</div>
+                        <div style={{ fontSize: 32, fontWeight: 800, color: statusColors[kpi.status], fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{kpi.value}</div>
+                        <div style={{ fontSize: 11, color: B.gray, marginTop: 6 }}>{kpi.sub}</div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 11, color: B.lightGray, marginBottom: 4 }}>Target: {kpi.target}</div>
+                        <div style={{ fontSize: 24, fontWeight: 800, color: statusColors[kpi.status], fontFamily: "'DM Mono', monospace" }}>{kpi.pct}%</div>
+                      </div>
+                    </div>
+                    <div style={{ height: 6, background: 'rgba(0,0,0,0.06)', borderRadius: 3 }}>
+                      <div style={{ height: '100%', width: `${kpi.pct}%`, borderRadius: 3, background: statusColors[kpi.status], transition: 'width 0.6s ease' }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Weekly Executive Report Generator */}
+              <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)', marginBottom: 20 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: B.black, marginBottom: 4 }}>📋 Weekly Executive Report</div>
+                <div style={{ fontSize: 12, color: B.gray, marginBottom: 16 }}>Auto-generated from your data — ready to send to Dustin</div>
+                <div style={{ background: '#FBF7F6', border: `1px solid ${B.border}`, borderRadius: 10, padding: '20px', fontFamily: "'DM Mono', monospace", fontSize: 12, color: B.black, lineHeight: 1.8, whiteSpace: 'pre-wrap', marginBottom: 14 }}>{`AXIOMHEALTH — WEEKLY OPERATIONS REPORT
+Week of ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+Prepared by: Liam O'Brien, Director of Operations
+${'─'.repeat(50)}
+
+VISIT PERFORMANCE
+• Weekly Visits: ${manualVisits} / ${VISIT_TARGET} target (${Math.round(manualVisits/VISIT_TARGET*100)}%)
+• Gap to Sustainability Threshold: ${visitGap > 0 ? visitGap + ' visits' : 'TARGET MET ✓'}
+• Visit Completion Rate: ${totalScheduled > 0 ? Math.round(totalCompleted/totalScheduled*100) + '%' : 'Pending coordinator reports'}
+• Missed Visits: ${totalMissed} (${totalMissed <= 2 ? 'Within threshold' : 'ABOVE threshold — action taken'})
+
+PATIENT CENSUS
+• Active Patients: ${totalPatients || 'Pending'}
+• New Referrals Today: ${totalReferrals}
+• Authorization Flags: ${totalAuthsExpiring} auths expiring within 7 days
+
+TEAM ACCOUNTABILITY
+• Morning Reports Submitted: ${reportsIn}/${coordinators.length}${reportsIn < coordinators.length ? ' ⚠ ' + (coordinators.length-reportsIn) + ' MISSING' : ' ✓ ALL RECEIVED'}
+• Open Tasks: ${totalOpenTasks}
+
+REGIONAL PERFORMANCE${csvData?.regionData ? '\n' + Object.entries(csvData.regionData).sort(([,a],[,b]) => b.scheduled - a.scheduled).map(([r,d]) => `• Region ${r}: ${d.scheduled} scheduled, ${d.completed} completed (${d.scheduled > 0 ? Math.round(d.completed/d.scheduled*100) : 0}%) — ${d.clinicians} clinicians`).join('\n') : '\nUpload Pariox data to populate regional breakdown'}
+
+EXPANSION STATUS
+• Georgia: ${expansionData.GA?.credentialing||0}% credentialed — ${expansionData.GA?.staffHired||0}/${expansionData.GA?.staffNeeded||0} staff hired — Target: ${expansionData.GA?.firstPatientDate||'TBD'}
+• Texas: ${expansionData.TX?.credentialing||0}% credentialed — ${expansionData.TX?.staffHired||0}/${expansionData.TX?.staffNeeded||0} staff hired — Target: ${expansionData.TX?.firstPatientDate||'TBD'}
+• North Carolina: ${expansionData.NC?.credentialing||0}% credentialed — ${expansionData.NC?.staffHired||0}/${expansionData.NC?.staffNeeded||0} staff hired — Target: ${expansionData.NC?.firstPatientDate||'TBD'}
+${'─'.repeat(50)}
+${directorNotes.length > 0 ? 'DIRECTOR NOTES\n' + directorNotes.slice(0,3).map(n => `• [${n.date}] ${n.text}`).join('\n') : ''}`}</div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={() => { navigator.clipboard.writeText(document.querySelector('[data-report]')?.textContent || ''); }} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 8, color: '#fff', padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', boxShadow: '0 2px 8px rgba(217,79,43,0.25)' }}
+                    onClick={() => {
+                      const text = document.querySelector('.report-text')?.innerText;
+                      if (text) navigator.clipboard.writeText(text).then(() => alert('Report copied to clipboard — paste into email or Slack'));
+                    }}>📋 Copy Report</button>
+                </div>
+              </div>
+
+              {/* Director Notes */}
+              <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: B.black, marginBottom: 4 }}>📝 Director's Notes</div>
+                <div style={{ fontSize: 12, color: B.gray, marginBottom: 16 }}>Context that lives with your data — visible in the weekly report</div>
+                <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+                  <input value={newNote} onChange={e => setNewNote(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && newNote.trim()) { const note = { text: newNote.trim(), date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), id: Date.now() }; const updated = [note, ...directorNotes].slice(0, 20); setDirectorNotes(updated); try { localStorage.setItem('axiom_director_notes', JSON.stringify(updated)); } catch(e){} setNewNote(''); }}}
+                    placeholder="Add a note for this week... (press Enter to save)"
+                    style={{ flex: 1, padding: '10px 14px', border: `1.5px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', color: B.black }} />
+                  <button onClick={() => { if (!newNote.trim()) return; const note = { text: newNote.trim(), date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), id: Date.now() }; const updated = [note, ...directorNotes].slice(0, 20); setDirectorNotes(updated); try { localStorage.setItem('axiom_director_notes', JSON.stringify(updated)); } catch(e){} setNewNote(''); }}
+                    style={{ background: B.red, border: 'none', borderRadius: 8, color: '#fff', padding: '10px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>+ Add</button>
+                </div>
+                {directorNotes.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '20px', color: B.lightGray, fontSize: 13, background: '#FDFAF9', borderRadius: 10, border: `1px dashed ${B.border}` }}>No notes yet — add context about this week's performance</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {directorNotes.map(note => (
+                      <div key={note.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 14px', background: '#FBF7F6', border: `1px solid ${B.border}`, borderRadius: 8 }}>
+                        <span style={{ fontSize: 11, color: B.lightGray, whiteSpace: 'nowrap', marginTop: 1, fontFamily: 'monospace' }}>{note.date}</span>
+                        <span style={{ flex: 1, fontSize: 13, color: B.black }}>{note.text}</span>
+                        <button onClick={() => { const updated = directorNotes.filter(n => n.id !== note.id); setDirectorNotes(updated); try { localStorage.setItem('axiom_director_notes', JSON.stringify(updated)); } catch(e){} }}
+                          style={{ background: 'none', border: 'none', color: B.lightGray, cursor: 'pointer', fontSize: 14, padding: '0 4px' }}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── EXPANSION ────────────────────────────────────────── */}
+        {activeTab === 'expansion' && (() => {
+          const statusConfig = {
+            'Live': { color: B.green, bg: '#F0FDF4', border: '#BBF7D0' },
+            'In Progress': { color: B.red, bg: '#FFF5F2', border: '#FDDDD5' },
+            'Planning': { color: B.yellow, bg: '#FFFBEB', border: '#FDE68A' },
+            'On Hold': { color: B.lightGray, bg: '#F9FAFB', border: '#E5E7EB' },
+          };
+          const saveExpansion = (data) => { setExpansionData(data); try { localStorage.setItem('axiom_expansion', JSON.stringify(data)); } catch(e){} };
+
+          return (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>Expansion Tracker</div>
+                  <div style={{ fontSize: 13, color: B.gray }}>Georgia · Texas · North Carolina — live status for every leadership conversation</div>
+                </div>
+                <div style={{ background: '#FFF5F2', border: `1px solid #FDDDD5`, borderRadius: 10, padding: '10px 16px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>Expansion Target</div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: B.red, fontFamily: "'DM Mono', monospace" }}>300+ Staff · $200K/wk</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {Object.entries(expansionData).map(([code, state]) => {
+                  const sc = statusConfig[state.status] || statusConfig['Planning'];
+                  const isEditing = editingExpansion === code;
+                  const overallPct = Math.round((state.credentialing + (state.staffHired/Math.max(state.staffNeeded,1)*100)) / 2);
+
+                  return (
+                    <div key={code} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, overflow: 'hidden', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                      {/* State header */}
+                      <div style={{ background: sc.bg, borderBottom: `1px solid ${sc.border}`, padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                          <div style={{ fontSize: 28, fontWeight: 800, color: sc.color, fontFamily: "'DM Mono', monospace" }}>{code}</div>
+                          <div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: B.black }}>{state.state}</div>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4, background: sc.bg, border: `1px solid ${sc.border}`, borderRadius: 12, padding: '2px 10px' }}>
+                              <div style={{ width: 6, height: 6, borderRadius: '50%', background: sc.color }} />
+                              <span style={{ fontSize: 11, fontWeight: 700, color: sc.color, letterSpacing: '0.06em' }}>{state.status}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <div style={{ textAlign: 'center', borderRight: `1px solid ${B.border}`, paddingRight: 16 }}>
+                            <div style={{ fontSize: 24, fontWeight: 800, color: sc.color, fontFamily: "'DM Mono', monospace" }}>{overallPct}%</div>
+                            <div style={{ fontSize: 10, color: B.lightGray, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Overall</div>
+                          </div>
+                          <button onClick={() => setEditingExpansion(isEditing ? null : code)} style={{ background: isEditing ? B.green : `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 8, color: '#fff', padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                            {isEditing ? '✓ Save' : '✏️ Edit'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Metrics */}
+                      <div style={{ padding: '20px 24px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 16 }}>
+                          {[
+                            { label: 'Credentialing', value: isEditing ? null : `${state.credentialing}%`, editKey: 'credentialing', type: 'range', color: sc.color },
+                            { label: 'Staff Hired', value: isEditing ? null : `${state.staffHired}/${state.staffNeeded}`, editKey: 'staffHired', type: 'number', color: B.black },
+                            { label: 'First Patient', value: isEditing ? null : state.firstPatientDate, editKey: 'firstPatientDate', type: 'date', color: B.black },
+                            { label: 'Weekly Target', value: isEditing ? null : `${state.weeklyVisitTarget} visits`, editKey: 'weeklyVisitTarget', type: 'number', color: B.black },
+                          ].map(m => (
+                            <div key={m.label} style={{ background: '#FBF7F6', borderRadius: 10, padding: '12px 14px', border: `1px solid ${B.border}` }}>
+                              <div style={{ fontSize: 10, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>{m.label}</div>
+                              {isEditing ? (
+                                m.type === 'range' ? (
+                                  <div>
+                                    <input type="range" min="0" max="100" value={state[m.editKey]}
+                                      onChange={e => saveExpansion({ ...expansionData, [code]: { ...state, [m.editKey]: parseInt(e.target.value) } })}
+                                      style={{ width: '100%', accentColor: B.red }} />
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: sc.color, fontFamily: "'DM Mono', monospace", textAlign: 'center' }}>{state[m.editKey]}%</div>
+                                  </div>
+                                ) : (
+                                  <input type={m.type === 'date' ? 'date' : 'number'} value={state[m.editKey]}
+                                    onChange={e => saveExpansion({ ...expansionData, [code]: { ...state, [m.editKey]: m.type === 'number' ? parseInt(e.target.value)||0 : e.target.value } })}
+                                    style={{ width: '100%', padding: '6px 8px', border: `1px solid ${B.border}`, borderRadius: 6, fontSize: 13, fontFamily: "'DM Mono', monospace", outline: 'none', color: B.black, background: '#fff' }} />
+                                )
+                              ) : (
+                                <div style={{ fontSize: 16, fontWeight: 700, color: m.color, fontFamily: "'DM Mono', monospace" }}>{m.value}</div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Credentialing progress bar */}
+                        <div style={{ marginBottom: 12 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                            <span style={{ fontSize: 12, color: B.gray }}>Credentialing Progress</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: sc.color, fontFamily: 'monospace' }}>{state.credentialing}%</span>
+                          </div>
+                          <div style={{ height: 8, background: '#F5EDEB', borderRadius: 4 }}>
+                            <div style={{ height: '100%', width: `${state.credentialing}%`, borderRadius: 4, background: `linear-gradient(90deg, ${B.darkRed}, ${B.red}, ${B.orange})`, transition: 'width 0.5s ease' }} />
+                          </div>
+                        </div>
+
+                        {/* Status selector + notes */}
+                        {isEditing && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 12, marginTop: 12 }}>
+                            <div>
+                              <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Status</div>
+                              <select value={state.status} onChange={e => saveExpansion({ ...expansionData, [code]: { ...state, status: e.target.value } })}
+                                style={{ width: '100%', padding: '8px 10px', border: `1px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', color: B.black, background: '#fff' }}>
+                                {['Planning', 'In Progress', 'Live', 'On Hold'].map(s => <option key={s}>{s}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Notes</div>
+                              <input value={state.notes} onChange={e => saveExpansion({ ...expansionData, [code]: { ...state, notes: e.target.value } })}
+                                placeholder="Key blockers, next steps, contacts..."
+                                style={{ width: '100%', padding: '8px 12px', border: `1px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', color: B.black, background: '#fff' }} />
+                            </div>
+                          </div>
+                        )}
+                        {!isEditing && state.notes && (
+                          <div style={{ padding: '10px 14px', background: '#FFF5F2', borderRadius: 8, borderLeft: `3px solid #FDDDD5`, fontSize: 12, color: B.black }}>
+                            {state.notes}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Combined expansion impact */}
+              <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '20px 24px', marginTop: 16, boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: B.black, marginBottom: 14 }}>Projected Impact When All 3 States Are Live</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+                  {[
+                    { label: 'Additional Weekly Visits', value: Object.values(expansionData).reduce((s,e) => s + (e.weeklyVisitTarget||0), 0), color: B.red },
+                    { label: 'Combined Weekly Target', value: VISIT_TARGET + Object.values(expansionData).reduce((s,e) => s + (e.weeklyVisitTarget||0), 0), color: B.darkRed },
+                    { label: 'Staff to Hire', value: Object.values(expansionData).reduce((s,e) => s + Math.max(0, (e.staffNeeded||0)-(e.staffHired||0)), 0), color: B.orange },
+                  ].map(m => (
+                    <div key={m.label} style={{ background: '#FBF7F6', borderRadius: 10, padding: '14px', textAlign: 'center', border: `1px solid ${B.border}` }}>
+                      <div style={{ fontSize: 28, fontWeight: 800, color: m.color, fontFamily: "'DM Mono', monospace" }}>{m.value}</div>
+                      <div style={{ fontSize: 11, color: B.lightGray, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 4 }}>{m.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── DATA ─────────────────────────────────────────────── */}
         {activeTab === 'data' && (
