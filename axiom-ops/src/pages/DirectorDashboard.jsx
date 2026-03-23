@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
@@ -680,6 +681,7 @@ function GoogleDriveLinkPanel({ driveLinks, onAddLink, onRemoveLink }) {
 // ── Main ──────────────────────────────────────────────────────
 export default function DirectorDashboard() {
   const { signOut } = useAuth();
+  const navigate = useNavigate();
   const [coordinators, setCoordinators] = useState([]);
   const [morningReports, setMorningReports] = useState([]);
   const [eodReports, setEodReports] = useState([]);
@@ -980,7 +982,66 @@ export default function DirectorDashboard() {
   const visitPct = Math.min(Math.round((manualVisits / CFG.visitTarget) * 100), 100);
   const visitGap = CFG.visitTarget - manualVisits;
   const trendData = csvData?.dailyTrend?.length > 0 ? csvData.dailyTrend : weeklyData;
-  const tabs = ['overview', 'revenue', 'scorecard', 'expansion', 'staff', 'regions', 'team', 'trends', 'reports', 'data', '⚙️'];
+  const tabs = ['overview', 'revenue', 'growth', 'scorecard', 'expansion', 'staff', 'regions', 'team', 'trends', 'reports', 'data', '⚙️'];
+
+  // ── Growth Tracker State ──────────────────────────────────────
+  // Weekly snapshots stored in localStorage — each snapshot captures a point-in-time
+  const [weeklySnapshots, setWeeklySnapshots] = useState(() => {
+    try { const s = localStorage.getItem('axiom_weekly_snapshots'); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+  const [snapshotNotes, setSnapshotNotes] = useState('');
+  const [savingSnapshot, setSavingSnapshot] = useState(false);
+  const [growthView, setGrowthView] = useState('weekly'); // 'weekly' | 'monthly' | 'funnel'
+
+  const saveSnapshot = () => {
+    if (!hasPariox && !hasCensus) return;
+    setSavingSnapshot(true);
+    const weekLabel = (() => {
+      const d = new Date();
+      const start = new Date(d); start.setDate(d.getDate() - d.getDay() + 1);
+      const end = new Date(d); end.setDate(d.getDate() - d.getDay() + 5);
+      return `${start.toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${end.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`;
+    })();
+    const monthLabel = new Date().toLocaleDateString('en-US',{month:'long',year:'numeric'});
+    const snap = {
+      id: Date.now(),
+      date: new Date().toISOString().split('T')[0],
+      weekLabel,
+      monthLabel,
+      weekNum: Math.ceil((new Date() - new Date(new Date().getFullYear(),0,1)) / (7*24*60*60*1000)),
+      // Visit metrics
+      scheduledVisits: csvData?.dedupedCount || manualVisits,
+      completedVisits: csvData?.completedVisits || 0,
+      missedVisits: csvData?.missedVisits || 0,
+      // Census metrics
+      activeCensus: hasCensus ? censusData.activeCensus : null,
+      totalCensus: hasCensus ? censusData.total : null,
+      active: hasCensus ? (censusData.counts.active||0) : null,
+      activeAuthPending: hasCensus ? (censusData.counts.active_auth_pending||0) : null,
+      authPending: hasCensus ? (censusData.counts.auth_pending||0) : null,
+      socPending: hasCensus ? (censusData.counts.soc_pending||0) : null,
+      evalPending: hasCensus ? (censusData.counts.eval_pending||0) : null,
+      waitlist: hasCensus ? (censusData.counts.waitlist||0) : null,
+      onHold: hasCensus ? ((censusData.counts.on_hold||0)+(censusData.counts.on_hold_facility||0)+(censusData.counts.on_hold_pt||0)+(censusData.counts.on_hold_md||0)) : null,
+      hospitalized: hasCensus ? (censusData.counts.hospitalized||0) : null,
+      discharge: hasCensus ? (censusData.counts.discharge||0) : null,
+      // Revenue estimate
+      estRevenue: (csvData?.dedupedCount || manualVisits) * CFG.avgReimbursement,
+      notes: snapshotNotes,
+    };
+    const updated = [...weeklySnapshots.filter(s => s.weekLabel !== weekLabel), snap]
+      .sort((a,b) => new Date(a.date) - new Date(b.date));
+    setWeeklySnapshots(updated);
+    try { localStorage.setItem('axiom_weekly_snapshots', JSON.stringify(updated)); } catch(e) {}
+    setSnapshotNotes('');
+    setSavingSnapshot(false);
+  };
+
+  const deleteSnapshot = (id) => {
+    const updated = weeklySnapshots.filter(s => s.id !== id);
+    setWeeklySnapshots(updated);
+    try { localStorage.setItem('axiom_weekly_snapshots', JSON.stringify(updated)); } catch(e) {}
+  };
 
   if (loading) return <div style={{ minHeight: '100vh', background: B.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: B.lightGray, fontFamily: 'DM Sans, sans-serif' }}>Loading...</div>;
 
@@ -990,7 +1051,12 @@ export default function DirectorDashboard() {
 
       {/* Header */}
       <div style={{ background: B.cardBg, borderBottom: `1px solid ${B.border}`, padding: '12px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100, boxShadow: '0 1px 6px rgba(139,26,16,0.08)' }}>
-        <img src="/logo.png" alt="AxiomHealth Management" style={{ height: 40, objectFit: 'contain' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <img src="/logo.png" alt="AxiomHealth" style={{ height: 32, objectFit: 'contain' }}
+              onError={e => { e.target.style.display='none'; }}
+            />
+            <span style={{ fontSize: 15, fontWeight: 800, color: B.darkRed, letterSpacing: '-0.3px' }}>AxiomHealth</span>
+          </div>
 
         <div style={{ display: 'flex', gap: 4 }}>
           {tabs.map(tab => (
@@ -1011,7 +1077,9 @@ export default function DirectorDashboard() {
             <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'DM Mono', monospace", color: B.red }}>{time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
             <div style={{ fontSize: 10, color: B.lightGray }}>{time.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
           </div>
-          <button onClick={signOut} style={{ background: '#FBF7F6', border: `1px solid ${B.border}`, borderRadius: 8, color: B.gray, padding: '7px 12px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Sign out</button>
+          <button onClick={() => navigate('/coordinator-portal')} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 8, color: '#fff', padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>👥 Coord Portal</button>
+          <button <button onClick={() => window.open('/report', '_blank')} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 8, color: '#fff', padding: '6px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>👥 Care Coordination</button>
+            onClick={signOut} style={{ background: '#FBF7F6', border: `1px solid ${B.border}`, borderRadius: 8, color: B.gray, padding: '7px 12px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Sign out</button
         </div>
       </div>
 
@@ -1478,6 +1546,377 @@ export default function DirectorDashboard() {
           );
         })()}
 
+
+        {/* ── GROWTH TRACKER ──────────────────────────────────── */}
+        {activeTab === 'growth' && (() => {
+          const snaps = weeklySnapshots;
+          const latest = snaps[snaps.length - 1];
+          const prev = snaps[snaps.length - 2];
+          const fmt = (n) => n >= 1000 ? `$${(n/1000).toFixed(1)}K` : n != null ? `$${n}` : '—';
+          const delta = (cur, prv, key) => {
+            if (cur?.[key] == null || prv?.[key] == null) return null;
+            return cur[key] - prv[key];
+          };
+          const DeltaBadge = ({ val, invert = false }) => {
+            if (val == null) return null;
+            const positive = invert ? val < 0 : val > 0;
+            const zero = val === 0;
+            return (
+              <span style={{
+                fontSize: 11, fontWeight: 700, marginLeft: 6,
+                color: zero ? '#6B7280' : positive ? '#2E7D32' : '#DC2626',
+                background: zero ? '#F9FAFB' : positive ? '#F0FDF4' : '#FEF2F2',
+                border: `1px solid ${zero ? '#E5E7EB' : positive ? '#BBF7D0' : '#FECACA'}`,
+                borderRadius: 10, padding: '1px 7px',
+              }}>
+                {val > 0 ? '+' : ''}{val}
+              </span>
+            );
+          };
+
+          // Monthly grouping
+          const byMonth = snaps.reduce((acc, s) => {
+            if (!acc[s.monthLabel]) acc[s.monthLabel] = [];
+            acc[s.monthLabel].push(s);
+            return acc;
+          }, {});
+
+          // Funnel analysis from latest snapshot
+          const funnelData = latest ? [
+            { label: 'New Evals (est/week)', value: 20, color: '#1565C0', desc: 'Based on your reported intake' },
+            { label: 'SOC Pending', value: latest.socPending || 0, color: '#0284C7', desc: 'Evaluated, awaiting start of care' },
+            { label: 'Active Census', value: latest.activeCensus || 0, color: '#2E7D32', desc: 'Active + Active-Auth Pending' },
+            { label: 'Scheduled Visits/wk', value: latest.scheduledVisits || 0, color: '#D94F2B', desc: 'Actual visit volume this week' },
+            { label: 'On Hold', value: latest.onHold || 0, color: '#6B7280', desc: 'Revenue paused — recovery opportunity' },
+            { label: 'Discharge', value: latest.discharge || 0, color: '#BBA8A4', desc: 'Exited the program' },
+          ] : [];
+
+          const maxFunnel = funnelData.length > 0 ? Math.max(...funnelData.map(f => f.value)) : 1;
+
+          // Week-over-week visit trend bars
+          const recentSnaps = snaps.slice(-12); // last 12 weeks
+          const maxVisits = recentSnaps.length > 0 ? Math.max(...recentSnaps.map(s => s.scheduledVisits || 0), 1) : 800;
+
+          return (
+            <div>
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>Growth Tracker</div>
+                  <div style={{ fontSize: 13, color: B.gray }}>
+                    Weekly snapshots of visit volume, census, and pipeline — {snaps.length} week{snaps.length !== 1 ? 's' : ''} of data
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {['weekly','monthly','funnel'].map(v => (
+                    <button key={v} onClick={() => setGrowthView(v)} style={{
+                      padding: '7px 14px', borderRadius: 8,
+                      border: `1px solid ${growthView === v ? B.red : B.border}`,
+                      background: growthView === v ? '#FFF5F2' : 'transparent',
+                      color: growthView === v ? B.red : B.gray,
+                      fontSize: 12, fontWeight: growthView === v ? 700 : 400,
+                      cursor: 'pointer', fontFamily: 'inherit',
+                    }}>{v.charAt(0).toUpperCase() + v.slice(1)}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Save snapshot card */}
+              <div style={{ background: `linear-gradient(135deg, ${B.darkRed}, ${B.red})`, borderRadius: 14, padding: '18px 24px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', boxShadow: '0 4px 16px rgba(139,26,16,0.2)' }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: '#fff', marginBottom: 3 }}>📸 Save This Week's Snapshot</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
+                    Captures current visits, census, and pipeline. {hasPariox || hasCensus ? 'Data ready to save.' : 'Upload Pariox or census data first.'}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flex: 1, maxWidth: 500 }}>
+                  <input value={snapshotNotes} onChange={e => setSnapshotNotes(e.target.value)} placeholder="Optional note (e.g. 'Week 12 — added 3 new clinicians')"
+                    style={{ flex: 1, padding: '9px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.15)', color: '#fff', fontSize: 12, fontFamily: 'inherit', outline: 'none' }} />
+                  <button onClick={saveSnapshot} disabled={(!hasPariox && !hasCensus) || savingSnapshot} style={{
+                    background: '#fff', border: 'none', borderRadius: 8, color: B.red,
+                    padding: '9px 18px', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+                    opacity: (!hasPariox && !hasCensus) ? 0.5 : 1,
+                  }}>📸 Save Now</button>
+                </div>
+              </div>
+
+              {snaps.length === 0 && (
+                <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '48px', textAlign: 'center', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                  <div style={{ fontSize: 36, marginBottom: 12 }}>📊</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: B.black, marginBottom: 8 }}>No snapshots yet</div>
+                  <div style={{ fontSize: 13, color: B.gray, maxWidth: 420, margin: '0 auto' }}>
+                    Upload your Pariox visit report and census, then hit "Save Now" each week. After a few weeks you'll see your growth trend clearly.
+                  </div>
+                </div>
+              )}
+
+              {snaps.length > 0 && growthView === 'weekly' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* WoW delta cards */}
+                  {latest && prev && (
+                    <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '20px 24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: B.black, marginBottom: 14 }}>
+                        Week-over-Week Change
+                        <span style={{ fontSize: 12, fontWeight: 400, color: B.lightGray, marginLeft: 8 }}>{prev.weekLabel} → {latest.weekLabel}</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                        {[
+                          { label: 'Scheduled Visits', key: 'scheduledVisits', icon: '📅', good: 'up' },
+                          { label: 'Active Census', key: 'activeCensus', icon: '👥', good: 'up' },
+                          { label: 'On Hold', key: 'onHold', icon: '⏸️', good: 'down' },
+                          { label: 'SOC Pending', key: 'socPending', icon: '📋', good: 'neutral' },
+                          { label: 'Auth Pending', key: 'authPending', icon: '🔒', good: 'down' },
+                          { label: 'Discharge', key: 'discharge', icon: '📤', good: 'neutral' },
+                          { label: 'Est. Revenue', key: 'estRevenue', icon: '💰', good: 'up', format: 'currency' },
+                          { label: 'Waitlist', key: 'waitlist', icon: '📝', good: 'down' },
+                        ].map(m => {
+                          const cur = latest[m.key];
+                          const prv = prev[m.key];
+                          const d = cur != null && prv != null ? cur - prv : null;
+                          const isPositive = m.good === 'up' ? d > 0 : m.good === 'down' ? d < 0 : false;
+                          const isNegative = m.good === 'up' ? d < 0 : m.good === 'down' ? d > 0 : false;
+                          const statusColor = d === 0 || d == null ? '#6B7280' : isPositive ? B.green : isNegative ? B.danger : '#6B7280';
+                          return (
+                            <div key={m.key} style={{ background: '#FBF7F6', borderRadius: 10, padding: '14px', border: `1px solid ${B.border}` }}>
+                              <div style={{ fontSize: 11, color: B.lightGray, marginBottom: 6 }}>{m.icon} {m.label}</div>
+                              <div style={{ fontSize: 22, fontWeight: 800, color: B.black, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>
+                                {cur != null ? (m.format === 'currency' ? `$${(cur/1000).toFixed(1)}K` : cur.toLocaleString()) : '—'}
+                              </div>
+                              {d != null && (
+                                <div style={{ fontSize: 12, fontWeight: 700, color: statusColor, marginTop: 6 }}>
+                                  {d > 0 ? '▲' : d < 0 ? '▼' : '→'} {Math.abs(d).toLocaleString()}{m.format === 'currency' ? '' : ''} vs last week
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Visit volume chart */}
+                  <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '20px 24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: B.black, marginBottom: 4 }}>📅 Scheduled Visits — Week by Week</div>
+                    <div style={{ fontSize: 12, color: B.gray, marginBottom: 16 }}>Target: {CFG.visitTarget} visits/week</div>
+                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 160, overflowX: 'auto', paddingBottom: 8 }}>
+                      {recentSnaps.map((s, i) => {
+                        const h = Math.round((s.scheduledVisits || 0) / maxVisits * 140);
+                        const targetH = Math.round(CFG.visitTarget / maxVisits * 140);
+                        const pct = Math.round((s.scheduledVisits || 0) / CFG.visitTarget * 100);
+                        const barColor = pct >= 100 ? B.green : pct >= 80 ? B.orange : B.red;
+                        return (
+                          <div key={s.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, minWidth: 60, position: 'relative' }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: barColor, marginBottom: 4 }}>{s.scheduledVisits}</div>
+                            <div style={{ width: '100%', position: 'relative', height: 140, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+                              {/* Target line */}
+                              <div style={{ position: 'absolute', left: 0, right: 0, bottom: targetH, height: 1, background: '#FDDDD5', borderTop: '2px dashed #FDDDD5', zIndex: 1 }} />
+                              <div style={{ width: '70%', height: h, background: `linear-gradient(180deg, ${barColor}CC, ${barColor})`, borderRadius: '4px 4px 0 0', transition: 'height 0.5s ease', position: 'relative', zIndex: 2 }} />
+                            </div>
+                            <div style={{ fontSize: 9, color: B.lightGray, marginTop: 4, textAlign: 'center', lineHeight: 1.3 }}>
+                              {s.weekLabel.split('–')[0].trim()}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ width: 20, height: 2, background: '#FDDDD5', borderTop: '2px dashed #FDDDD5' }} />
+                        <span style={{ fontSize: 11, color: B.lightGray }}>Target ({CFG.visitTarget})</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Census trend */}
+                  {snaps.some(s => s.activeCensus != null) && (
+                    <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '20px 24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: B.black, marginBottom: 16 }}>👥 Census Pipeline — Week by Week</div>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ background: '#FBF7F6' }}>
+                              {['Week', 'Active Census', 'On Hold', 'SOC Pending', 'Auth Pending', 'Discharge', 'Est. Revenue', 'Notes'].map(h => (
+                                <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Week' ? 'left' : 'center', fontSize: 10, fontWeight: 700, color: B.lightGray, textTransform: 'uppercase', letterSpacing: '0.06em', borderBottom: `1px solid ${B.border}`, whiteSpace: 'nowrap' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {snaps.map((s, i) => {
+                              const prevSnap = snaps[i-1];
+                              const censusD = prevSnap && s.activeCensus != null && prevSnap.activeCensus != null ? s.activeCensus - prevSnap.activeCensus : null;
+                              return (
+                                <tr key={s.id} style={{ borderBottom: `1px solid #FAF4F2`, background: i === snaps.length-1 ? '#FFF5F2' : 'transparent' }}>
+                                  <td style={{ padding: '10px 12px', fontWeight: i === snaps.length-1 ? 700 : 400, color: B.black, whiteSpace: 'nowrap' }}>
+                                    {s.weekLabel}
+                                    {i === snaps.length-1 && <span style={{ fontSize: 10, color: B.red, marginLeft: 6 }}>← Latest</span>}
+                                  </td>
+                                  <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace' }}>
+                                    {s.activeCensus ?? '—'}
+                                    {censusD != null && <span style={{ fontSize: 10, color: censusD >= 0 ? B.green : B.danger, marginLeft: 4 }}>{censusD >= 0 ? '+' : ''}{censusD}</span>}
+                                  </td>
+                                  <td style={{ padding: '10px 12px', textAlign: 'center', color: (s.onHold||0) > 100 ? B.danger : B.gray, fontFamily: 'monospace' }}>{s.onHold ?? '—'}</td>
+                                  <td style={{ padding: '10px 12px', textAlign: 'center', color: '#0284C7', fontFamily: 'monospace' }}>{s.socPending ?? '—'}</td>
+                                  <td style={{ padding: '10px 12px', textAlign: 'center', color: (s.authPending||0) > 5 ? B.danger : B.gray, fontFamily: 'monospace' }}>{s.authPending ?? '—'}</td>
+                                  <td style={{ padding: '10px 12px', textAlign: 'center', color: B.lightGray, fontFamily: 'monospace' }}>{s.discharge ?? '—'}</td>
+                                  <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600, color: B.green, fontFamily: 'monospace' }}>${((s.estRevenue||0)/1000).toFixed(1)}K</td>
+                                  <td style={{ padding: '10px 12px', fontSize: 11, color: B.gray, maxWidth: 150 }}>{s.notes || '—'}</td>
+                                  <td style={{ padding: '4px' }}>
+                                    <button onClick={() => deleteSnapshot(s.id)} style={{ background: 'none', border: 'none', color: B.lightGray, cursor: 'pointer', fontSize: 12, padding: '2px 6px' }}>✕</button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {growthView === 'monthly' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {Object.entries(byMonth).length === 0 ? (
+                    <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '32px', textAlign: 'center', color: B.lightGray }}>No monthly data yet — save weekly snapshots to build monthly trends</div>
+                  ) : Object.entries(byMonth).map(([month, monthSnaps]) => {
+                    const first = monthSnaps[0];
+                    const last = monthSnaps[monthSnaps.length - 1];
+                    const avgVisits = Math.round(monthSnaps.reduce((s,w) => s+(w.scheduledVisits||0),0) / monthSnaps.length);
+                    const censusGrowth = last.activeCensus != null && first.activeCensus != null ? last.activeCensus - first.activeCensus : null;
+                    const totalRevEst = monthSnaps.reduce((s,w) => s+(w.estRevenue||0),0);
+                    return (
+                      <div key={month} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '20px 24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: B.black }}>{month}</div>
+                          <div style={{ fontSize: 12, color: B.lightGray }}>{monthSnaps.length} week{monthSnaps.length !== 1 ? 's' : ''} of data</div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 14 }}>
+                          {[
+                            { label: 'Avg Visits/Week', value: avgVisits, color: B.red, target: CFG.visitTarget, showPct: true },
+                            { label: 'Census Growth', value: censusGrowth != null ? `${censusGrowth >= 0 ? '+' : ''}${censusGrowth}` : '—', color: censusGrowth > 0 ? B.green : censusGrowth < 0 ? B.danger : B.gray },
+                            { label: 'Month-End Active Census', value: last.activeCensus ?? '—', color: B.green },
+                            { label: 'Est. Monthly Revenue', value: `$${(totalRevEst/1000).toFixed(1)}K`, color: B.green },
+                          ].map(m => (
+                            <div key={m.label} style={{ background: '#FBF7F6', borderRadius: 10, padding: '14px', border: `1px solid ${B.border}`, textAlign: 'center' }}>
+                              <div style={{ fontSize: 10, color: B.lightGray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>{m.label}</div>
+                              <div style={{ fontSize: 24, fontWeight: 800, color: m.color, fontFamily: "'DM Mono', monospace" }}>{m.value}</div>
+                              {m.showPct && m.target && <div style={{ fontSize: 11, color: B.lightGray, marginTop: 4 }}>{Math.round(m.value/m.target*100)}% of {m.target} target</div>}
+                            </div>
+                          ))}
+                        </div>
+                        {/* Mini bar chart for the month */}
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', height: 60 }}>
+                          {monthSnaps.map(s => {
+                            const h = Math.round((s.scheduledVisits||0) / CFG.visitTarget * 56);
+                            const color = s.scheduledVisits >= CFG.visitTarget ? B.green : s.scheduledVisits >= CFG.visitTarget*0.8 ? B.orange : B.red;
+                            return (
+                              <div key={s.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                                <div style={{ width: '100%', height: h, background: color, borderRadius: '3px 3px 0 0', minHeight: 4 }} />
+                                <div style={{ fontSize: 9, color: B.lightGray }}>{s.weekLabel.split(' ')[0]}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {growthView === 'funnel' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* The key insight panel */}
+                  <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 16, padding: '20px 24px' }}>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: '#92400E', marginBottom: 12 }}>⚡ Why Visits Are Flat — Pipeline Analysis</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13, color: '#92400E' }}>
+                      <div style={{ background: 'rgba(255,255,255,0.6)', borderRadius: 10, padding: '14px' }}>
+                        <div style={{ fontWeight: 700, marginBottom: 6 }}>📥 Inflow (weekly)</div>
+                        <div>~20 new evals entering</div>
+                        <div style={{ fontSize: 12, marginTop: 4, color: '#B45309' }}>Converts to active in ~2-3 weeks</div>
+                      </div>
+                      <div style={{ background: 'rgba(255,255,255,0.6)', borderRadius: 10, padding: '14px' }}>
+                        <div style={{ fontWeight: 700, marginBottom: 6 }}>📤 Outflow (current snapshot)</div>
+                        {latest ? <>
+                          <div>{latest.onHold ?? 0} on hold · {latest.discharge ?? 0} discharged</div>
+                          <div style={{ fontSize: 12, marginTop: 4, color: '#B45309' }}>
+                            {latest.activeCensus != null ? `${latest.onHold ?? 0} on hold = ${Math.round((latest.onHold||0)/latest.activeCensus*100)}% of active census` : 'Upload census to see ratio'}
+                          </div>
+                        </> : <div>Save a snapshot to see outflow data</div>}
+                      </div>
+                    </div>
+                    {latest && latest.onHold > 80 && (
+                      <div style={{ marginTop: 12, padding: '10px 14px', background: '#FEF3C7', borderRadius: 8, fontSize: 12, color: '#92400E', fontWeight: 600 }}>
+                        🎯 Key lever: {latest.onHold} on-hold patients. If your team returns 10/week to active status, that's +{10 * CFG.authRiskVisitsPerWeek} visits/week within 2 weeks.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Patient funnel visualization */}
+                  {latest ? (
+                    <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: B.black, marginBottom: 20 }}>Patient Pipeline Funnel</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {funnelData.map((f, i) => {
+                          const barW = Math.round(f.value / maxFunnel * 100);
+                          return (
+                            <div key={f.label} style={{ display: 'grid', gridTemplateColumns: '200px 1fr 80px', alignItems: 'center', gap: 12 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: B.black, textAlign: 'right' }}>{f.label}</div>
+                              <div style={{ height: 32, background: '#F5EDEB', borderRadius: 6, overflow: 'hidden', position: 'relative' }}>
+                                <div style={{ height: '100%', width: `${barW}%`, background: f.color, borderRadius: 6, transition: 'width 0.6s ease', display: 'flex', alignItems: 'center', paddingLeft: 10 }}>
+                                  <span style={{ fontSize: 11, color: '#fff', fontWeight: 700, whiteSpace: 'nowrap' }}>{f.value > 0 ? f.desc : ''}</span>
+                                </div>
+                              </div>
+                              <div style={{ fontSize: 18, fontWeight: 800, color: f.color, fontFamily: "'DM Mono', monospace", textAlign: 'right' }}>{f.value}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Conversion rates */}
+                      <div style={{ marginTop: 24, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                        {[
+                          {
+                            label: 'Active → Scheduled',
+                            value: latest.activeCensus > 0 ? Math.round(latest.scheduledVisits / latest.activeCensus * 100) : 0,
+                            desc: 'Of active patients, % with visits this week',
+                            target: 90, good: v => v >= 90,
+                          },
+                          {
+                            label: 'On Hold Rate',
+                            value: (latest.activeCensus||0) + (latest.onHold||0) > 0 ? Math.round((latest.onHold||0) / ((latest.activeCensus||0) + (latest.onHold||0)) * 100) : 0,
+                            desc: 'On hold as % of active + on hold',
+                            target: 15, good: v => v <= 15,
+                          },
+                          {
+                            label: 'Pipeline Conversion',
+                            value: ((latest.socPending||0) + (latest.evalPending||0)) > 0 ? Math.round((latest.activeCensus||0) / ((latest.activeCensus||0) + (latest.socPending||0) + (latest.evalPending||0)) * 100) : 0,
+                            desc: 'Active as % of active + SOC + eval pending',
+                            target: 75, good: v => v >= 75,
+                          },
+                        ].map(m => {
+                          const isGood = m.good(m.value);
+                          return (
+                            <div key={m.label} style={{ background: isGood ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${isGood ? '#BBF7D0' : '#FECACA'}`, borderRadius: 12, padding: '16px' }}>
+                              <div style={{ fontSize: 11, color: isGood ? B.green : B.danger, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>{m.label}</div>
+                              <div style={{ fontSize: 32, fontWeight: 800, color: isGood ? B.green : B.danger, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{m.value}%</div>
+                              <div style={{ fontSize: 11, color: isGood ? '#15803D' : B.danger, marginTop: 6 }}>{m.desc}</div>
+                              <div style={{ fontSize: 10, color: isGood ? '#15803D' : B.danger, marginTop: 3, opacity: 0.8 }}>Target: {m.target}{m.label.includes('Rate') ? '% or less' : '%+'}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '32px', textAlign: 'center', color: B.lightGray }}>
+                      Save a snapshot to see the pipeline funnel analysis
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* ── SCORECARD ────────────────────────────────────────── */}
         {activeTab === 'scorecard' && (() => {
           const hasCensusVal = hasCensus ? censusData.activeCensus : (totalPatients || 0);
@@ -1487,7 +1926,7 @@ export default function DirectorDashboard() {
             { label: 'Visit Completion Rate', value: `${csvData?.completedVisits > 0 ? Math.round(csvData.completedVisits/(csvData.dedupedCount||1)*100) : 0}%`, target: '90%+', pct: csvData?.completedVisits > 0 ? Math.min(Math.round(csvData.completedVisits/(csvData.dedupedCount||1)*100/90*100),100) : 0, status: (csvData?.completedVisits||0)/(csvData?.dedupedCount||1) >= 0.9 ? 'green' : (csvData?.completedVisits||0)/(csvData?.dedupedCount||1) >= 0.7 ? 'yellow' : 'red', sub: `${csvData?.completedVisits||0} of ${csvData?.dedupedCount||0} completed` },
             { label: 'Auth Expiry Risk', value: totalAuthsExpiring, target: '0', pct: totalAuthsExpiring === 0 ? 100 : 0, status: totalAuthsExpiring === 0 ? 'green' : totalAuthsExpiring <= 3 ? 'yellow' : 'red', sub: 'Auths expiring in 7 days' },
             { label: 'Morning Reports', value: `${reportsIn}/4`, target: '4/4', pct: Math.round(reportsIn/4*100), status: reportsIn === 4 ? 'green' : reportsIn >= 2 ? 'yellow' : 'red', sub: `${4 - reportsIn} missing` },
-            { label: 'Missed Visits', value: totalMissedVisits, target: '<5/day', pct: totalMissedVisits === 0 ? 100 : Math.max(0,100-totalMissedVisits*20), status: totalMissedVisits === 0 ? 'green' : totalMissedVisits < 5 ? 'yellow' : 'red', sub: 'Cancellations this week' },
+            { label: 'Missed Visits', value: totalMissed, target: '<5/day', pct: totalMissed === 0 ? 100 : Math.max(0,100-totalMissed*20), status: totalMissed === 0 ? 'green' : totalMissed < 5 ? 'yellow' : 'red', sub: 'Cancellations this week' },
             { label: 'Expansion Progress', value: `${Math.round(Object.values(expansionData).reduce((s,e)=>s+(e.credentialing||0),0)/3)}%`, target: 'Q3 Live', pct: Math.round(Object.values(expansionData).reduce((s,e)=>s+(e.credentialing||0),0)/3), status: Object.values(expansionData).some(e=>e.credentialing>=80) ? 'green' : Object.values(expansionData).some(e=>e.credentialing>=40) ? 'yellow' : 'red', sub: 'Avg credentialing across GA/TX/NC' },
           ];
           const statusColors = { green: B.green, yellow: B.yellow, red: B.danger };
@@ -1503,7 +1942,7 @@ OPERATIONAL SUMMARY
 • Visit Completion Rate: ${csvData?.completedVisits > 0 ? Math.round(csvData.completedVisits/(csvData.dedupedCount||1)*100) : 0}%
 • Morning Reports Submitted: ${reportsIn}/4
 • Auth Expiry Risk: ${totalAuthsExpiring} auths expiring in 7 days
-• Missed Visits This Week: ${totalMissedVisits}
+• Missed Visits This Week: ${totalMissed}
 
 EXPANSION STATUS
 • Georgia: ${expansionData.GA?.credentialing||0}% credentialed | ${expansionData.GA?.staffHired||0}/${expansionData.GA?.staffNeeded||4} staff hired | Target: ${expansionData.GA?.firstPatientDate||'TBD'}
