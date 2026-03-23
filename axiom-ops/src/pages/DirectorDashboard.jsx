@@ -915,6 +915,7 @@ export default function DirectorDashboard() {
   // Use Pariox data when loaded, fall back to coordinator reports
   // Pariox gives us: patients, today's visits, completion, missed
   const hasPariox = !!(csvData && csvData.scheduledVisits > 0);
+  const hasCensus = !!(censusData && censusData.counts);
 
   // Use csvData direct fields for overview — Pariox has weekly totals
   const totalPatients = hasPariox
@@ -1137,7 +1138,6 @@ export default function DirectorDashboard() {
                 hospitalized:        { label: 'Hospitalized',       color: '#DC2626', bg: '#FEF2F2', border: '#FECACA', icon: '🚨', desc: 'In hospital' },
                 discharge:           { label: 'Discharge',          color: '#BBA8A4', bg: '#FAFAFA', border: '#E5E7EB', icon: '📤', desc: 'Discharged' },
               };
-              const hasCensus = !!(censusData && censusData.counts);
               const totalCensus = hasCensus ? censusData.total : null;
               const activeCensus = hasCensus ? censusData.activeCensus : null;
               const regionKeys = hasCensus ? Object.keys(censusData.byRegion || {}).sort() : [];
