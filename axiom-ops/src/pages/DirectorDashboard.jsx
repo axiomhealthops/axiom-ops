@@ -2336,10 +2336,22 @@ ${directorNotes.length > 0 ? 'DIRECTOR NOTES\n' + directorNotes.slice(0,3).map(n
           const waitlistPats = hasCensus ? (censusData.counts.waitlist||0) : 0;
           const waitlistPotential = waitlistPats * CFG.authRiskVisitsPerWeek * avgRate;
 
-          // Payer mix
+          // Payer mix — derived from Ref Source prefix (Insurance col is placeholder)
+          const getPayerFromRef = (ref) => {
+            const r = (ref || '').toUpperCase();
+            if (r.startsWith('HU')) return 'Humana';
+            if (r.startsWith('CP') || r.startsWith('CAR')) return 'CarePlus';
+            if (r.startsWith('MED')) return 'Medicare/Devoted';
+            if (r.startsWith('DH')) return 'Devoted Health';
+            if (r.startsWith('FHC')) return 'Florida Health Care Plans';
+            if (r.startsWith('AM') || r.startsWith('AC')) return 'Aetna';
+            if (r.startsWith('CIG') || r.startsWith('HCIG')) return 'Cigna';
+            if (r.startsWith('HF')) return 'HealthFirst';
+            if (r.startsWith('PP')) return 'Private Pay (Self)';
+            return 'Other';
+          };
           const payerCounts = hasCensus ? censusData.patients.reduce((acc, p) => {
-            const ins = (p.ins || 'unknown').toLowerCase();
-            const key = ins.includes('medicare') ? 'Medicare' : ins.includes('medicaid') ? 'Medicaid' : ins.includes('private') || ins === 'private' ? 'Private Pay' : 'Other';
+            const key = getPayerFromRef(p.ref);
             acc[key] = (acc[key]||0) + 1; return acc;
           }, {}) : {};
           const totalPayers = Object.values(payerCounts).reduce((s,v)=>s+v,0);
@@ -2445,7 +2457,16 @@ ${directorNotes.length > 0 ? 'DIRECTOR NOTES\n' + directorNotes.slice(0,3).map(n
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {Object.entries(payerCounts).sort(([,a],[,b]) => b-a).map(([payer, count]) => {
                           const pct = Math.round(count / totalPayers * 100);
-                          const payerColor = payer === 'Private Pay' ? B.red : payer === 'Medicare' ? '#1565C0' : payer === 'Medicaid' ? '#059669' : B.gray;
+                          const payerColor =
+                            payer === 'Humana' ? '#0066CC' :
+                            payer === 'CarePlus' ? '#009B77' :
+                            payer === 'Medicare/Devoted' ? '#1565C0' :
+                            payer === 'Devoted Health' ? '#1976D2' :
+                            payer === 'Florida Health Care Plans' ? '#2E7D32' :
+                            payer === 'Aetna' ? '#7B1FA2' :
+                            payer === 'Cigna' ? '#E65100' :
+                            payer === 'HealthFirst' ? '#00838F' :
+                            payer === 'Private Pay (Self)' ? B.gray : B.lightGray;
                           return (
                             <div key={payer}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -2458,11 +2479,21 @@ ${directorNotes.length > 0 ? 'DIRECTOR NOTES\n' + directorNotes.slice(0,3).map(n
                             </div>
                           );
                         })}
-                        {payerCounts['Private Pay'] && (payerCounts['Private Pay']/totalPayers) > 0.9 && (
-                          <div style={{ marginTop: 8, padding: '8px 12px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: 11, color: '#92400E' }}>
-                            ⚠️ {Math.round(payerCounts['Private Pay']/totalPayers*100)}% private pay concentration — consider payer diversification
-                          </div>
-                        )}
+                      <div style={{ borderTop: `1px solid ${B.border}`, marginTop: 4, paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 11, color: B.gray }}>Total insured patients</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: B.black }}>{totalPayers}</span>
+                      </div>
+                        {(() => {
+                          const topPayer = Object.entries(payerCounts).sort(([,a],[,b])=>b-a)[0];
+                          if (topPayer && topPayer[1]/totalPayers > 0.4) {
+                            return (
+                              <div style={{ marginTop: 8, padding: '8px 12px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: 11, color: '#92400E' }}>
+                                ⚠️ {topPayer[0]} represents {Math.round(topPayer[1]/totalPayers*100)}% of census ({topPayer[1]} patients) — single payer concentration risk
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                       </div>
                     ) : (
                       <div style={{ textAlign: 'center', color: B.lightGray, fontSize: 13 }}>Upload census data to see payer mix</div>
