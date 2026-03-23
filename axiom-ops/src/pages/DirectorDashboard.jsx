@@ -147,7 +147,16 @@ function parseParioxCSV(text) {
     staffStats[name] = { name: data.name, discipline: data.discipline, primaryRegion: data.primaryRegion, totalVisits: data.totalVisits, completedVisits: data.completedVisits, uniquePatients: data.patients.size, regions: Array.from(data.regions) };
   }
 
-  return { completedVisits: dedupedCompleted, missedVisits: missed, scheduledVisits: dedupedScheduled, rawScheduled: scheduled, rawCompleted: completed, dailyTrend, rowCount: lines.length - 1, regionData, uniquePatients: patientSet.size, staffStats, dedupedCount: dedupedScheduled, rawCount: scheduled };
+  // Build staffList from staffMap for directory sync
+  const staffList = Object.values(staffMap).map(s => ({
+    name: s.name,
+    discipline: s.discipline,
+    regions: Array.from(s.regions).sort().join(', '),
+    regionCount: s.regions.size,
+    totalVisits: s.totalVisits,
+    uniquePatients: s.uniquePatients.size,
+  }));
+  return { completedVisits: dedupedCompleted, missedVisits: missed, scheduledVisits: dedupedScheduled, rawScheduled: scheduled, rawCompleted: completed, dailyTrend, rowCount: lines.length - 1, regionData, uniquePatients: patientSet.size, staffList, dedupedCount: dedupedScheduled, rawCount: scheduled };
 }
 
 // ── Shared components ─────────────────────────────────────────
@@ -268,25 +277,39 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
       day: new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' }),
       visits: data.completed, scheduled: data.scheduled, target: Math.round(VISIT_TARGET / 5)
     }));
-    // Build region breakdown
+    // Build region breakdown and staff map simultaneously
   const regionMap = {};
+  const staffMap = {};
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i]; if (!row || !row.length) continue;
     const regionIdx = headersArr.findIndex(h => h === 'region');
     const staffIdx = headersArr.findIndex(h => h === 'staff');
     const patientIdx = headersArr.findIndex(h => h === 'patient');
     if (regionIdx === -1) continue;
-    const region = String(row[regionIdx] || '').trim();
-    const staff = String(row[staffIdx] || '').trim();
-    const patient = String(row[patientIdx] || '').trim();
-      const status = String(row[statusIdx] || '').toLowerCase().trim();
-    const isComplete = status.startsWith('completed');
-    if (!region) continue;
-    if (!regionMap[region]) regionMap[region] = { scheduled: 0, completed: 0, clinicians: new Set(), patients: new Set(), clinicianMap: {} };
-    regionMap[region].scheduled++;
-    if (isComplete) regionMap[region].completed++;
-    if (staff) { regionMap[region].clinicians.add(staff); if (!regionMap[region].clinicianMap[staff]) regionMap[region].clinicianMap[staff] = { scheduled: 0, completed: 0, patients: new Set() }; regionMap[region].clinicianMap[staff].scheduled++; if (isComplete) regionMap[region].clinicianMap[staff].completed++; if (patient) regionMap[region].clinicianMap[staff].patients.add(patient); }
-    if (patient) regionMap[region].patients.add(patient);
+     const region = String(row[regionIdx] || '').trim();
+     const staff = String(row[staffIdx] || '').trim();
+     const patient = String(row[patientIdx] || '').trim();
+     const discIdx = headers.findIndex(h => h === 'disc');
+     const disc = discIdx >= 0 ? String(row[discIdx] || '').trim() : '';
+     const status = String(row[statusIdx] || '').toLowerCase().trim();
+     const isComplete = status.startsWith('completed');
+     if (!region) continue;
+     if (!regionMap[region]) regionMap[region] = { scheduled: 0, completed: 0, clinicians: new Set(), patients: new Set(), clinicianMap: {} };
+     regionMap[region].scheduled++;
+     if (isComplete) regionMap[region].completed++;
+     if (staff) {
+       regionMap[region].clinicians.add(staff);
+       if (!regionMap[region].clinicianMap[staff]) regionMap[region].clinicianMap[staff] = { scheduled: 0, completed: 0, patients: new Set() };
+       regionMap[region].clinicianMap[staff].scheduled++;
+       if (isComplete) regionMap[region].clinicianMap[staff].completed++;
+       if (patient) regionMap[region].clinicianMap[staff].patients.add(patient);
+       // Staff directory
+       if (!staffMap[staff]) staffMap[staff] = { name: staff, discipline: disc, regions: new Set(), totalVisits: 0, uniquePatients: new Set() };
+       staffMap[staff].totalVisits++;
+       staffMap[staff].regions.add(region);
+       if (patient) staffMap[staff].uniquePatients.add(patient);
+     }
+     if (patient) regionMap[region].patients.add(patient);
   }
   const regionData = {};
   for (const [region, data] of Object.entries(regionMap)) {
@@ -337,7 +360,14 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
     for (const [name, data] of Object.entries(xlsxStaffMap)) {
       xlsxStaffStats[name] = { name: data.name, discipline: data.discipline, primaryRegion: data.primaryRegion, totalVisits: data.totalVisits, completedVisits: data.completedVisits, uniquePatients: data.patients.size, regions: Array.from(data.regions) };
     }
-    return { completedVisits: xDedupedComp, missedVisits: missed, scheduledVisits: xDedupedSched, rawScheduled: scheduled, rawCompleted: completed, dailyTrend, rowCount: rows.length - 1, regionData, uniquePatients: xlsxPatientSet.size, staffStats: xlsxStaffStats, dedupedCount: xDedupedSched, rawCount: scheduled };
+    const xlsxStaffList = Object.values(staffMap).map(s => ({
+      name: s.name, discipline: s.discipline,
+      regions: Array.from(s.regions).sort().join(', '),
+      regionCount: s.regions.size,
+      totalVisits: s.totalVisits,
+      uniquePatients: s.uniquePatients.size,
+    }));
+    return { completedVisits: xDedupedComp, missedVisits: missed, scheduledVisits: xDedupedSched, rawScheduled: scheduled, rawCompleted: completed, dailyTrend, rowCount: rows.length - 1, regionData, uniquePatients: xlsxPatientSet.size, staffList: xlsxStaffList, dedupedCount: xDedupedSched, rawCount: scheduled };
   }
 
   function handleFile(file) {
@@ -432,6 +462,147 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
 }
 
 
+function CensusUploadPanel({ censusData, onDataLoaded, parseCensusFile, error, setError, processing, setProcessing }) {
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef();
+
+  const STATUS_META = {
+    active:              { label: 'Active',              color: '#2E7D32', icon: '✅' },
+    active_auth_pending: { label: 'Active–Auth Pending', color: '#E8763A', icon: '⏳' },
+    auth_pending:        { label: 'Auth Pending',        color: '#D97706', icon: '🔒' },
+    soc_pending:         { label: 'SOC Pending',         color: '#0284C7', icon: '📅' },
+    eval_pending:        { label: 'Eval Pending',        color: '#1565C0', icon: '🩺' },
+    waitlist:            { label: 'Waitlist',            color: '#7C3AED', icon: '📋' },
+    on_hold:             { label: 'On Hold',             color: '#6B7280', icon: '⏸️' },
+    on_hold_facility:    { label: 'On Hold – Facility',  color: '#9CA3AF', icon: '🏥' },
+    on_hold_pt:          { label: 'On Hold – Pt Req',    color: '#9CA3AF', icon: '🙋' },
+    on_hold_md:          { label: 'On Hold – MD Req',    color: '#9CA3AF', icon: '👨‍⚕️' },
+    hospitalized:        { label: 'Hospitalized',        color: '#DC2626', icon: '🚨' },
+    discharge:           { label: 'Discharge',           color: '#BBA8A4', icon: '📤' },
+  };
+
+  function handleFile(file) {
+    if (!file) return;
+    if (!file.name.match(/\.(csv|xlsx|xls)$/i)) { setError('Please upload a CSV or Excel census file from Pariox'); return; }
+    setProcessing(true); setError('');
+
+    const isXLSX = file.name.match(/\.xlsx?$/i);
+    if (isXLSX) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const XLSX = window.XLSX;
+          if (!XLSX) { setError('Excel parser loading — try again in a moment or use CSV format'); setProcessing(false); return; }
+          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const csvText = XLSX.utils.sheet_to_csv(ws);
+          const result = parseCensusFile(csvText);
+          if (!result) { setError('Could not detect a Status column. Make sure this is a Pariox patient census report.'); setProcessing(false); return; }
+          onDataLoaded(result); setProcessing(false);
+        } catch(err) { setError('Error reading file: ' + err.message); setProcessing(false); }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const result = parseCensusFile(e.target.result);
+          if (!result) { setError('Could not detect a Status column. Make sure this is a Pariox patient census report.'); setProcessing(false); return; }
+          onDataLoaded(result); setProcessing(false);
+        } catch(err) { setError('Error: ' + err.message); setProcessing(false); }
+      };
+      reader.readAsText(file);
+    }
+  }
+
+  function handleChange(e) { handleFile(e.target.files[0]); e.target.value = ''; }
+
+  const totalCensus = censusData ? Object.values(censusData.counts).reduce((s,v) => s+v, 0) : 0;
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #F0E4E0', borderRadius: 16, padding: '24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A', marginBottom: 3 }}>👥 Patient Census Upload</div>
+          <div style={{ fontSize: 12, color: '#8B6B64' }}>
+            Upload your Pariox patient census report — separate from the visit schedule.
+            Tracks Active, On Hold, Auth Pending, Waitlist, and Eval Pending patients.
+          </div>
+        </div>
+        {censusData && (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '6px 12px', fontSize: 11, color: '#2E7D32', fontWeight: 600 }}>
+              ✓ {totalCensus} patients loaded
+            </div>
+            <div style={{ fontSize: 10, color: '#BBA8A4', marginTop: 4 }}>Updated {censusData.lastUpdated}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Upload zone */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
+        onClick={() => fileRef.current.click()}
+        style={{ border: `2px dashed ${dragging ? '#D94F2B' : '#E8D5D0'}`, borderRadius: 12, padding: '24px 20px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s', background: dragging ? '#FFF5F2' : '#FDFAF9' }}
+      >
+        <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={handleChange} />
+        <div style={{ fontSize: 28, marginBottom: 8 }}>{processing ? '⏳' : censusData ? '🔄' : '👥'}</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A', marginBottom: 4 }}>
+          {processing ? 'Processing census...' : censusData ? 'Upload new census to override' : 'Drop your Pariox patient census here'}
+        </div>
+        <div style={{ fontSize: 11, color: '#BBA8A4' }}>CSV or XLSX — pull from Pariox Reports → Patient Census or Patient List</div>
+      </div>
+
+      {error && <div style={{ marginTop: 10, padding: '8px 12px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, fontSize: 12, color: '#DC2626' }}>{error}</div>}
+
+      {/* Status breakdown */}
+      {censusData && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 11, color: '#BBA8A4', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
+            Status Breakdown — {censusData.detectedStatusCol ? `Column detected: "${censusData.detectedStatusCol}"` : ''}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            {Object.entries(STATUS_META).map(([key, meta]) => {
+              const count = censusData.counts[key] || 0;
+              const pct = totalCensus > 0 ? Math.round(count / totalCensus * 100) : 0;
+              return (
+                <div key={key} style={{ background: '#FBF7F6', borderRadius: 8, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #F0E4E0' }}>
+                  <div style={{ fontSize: 12, color: '#1A1A1A' }}>{meta.icon} {meta.label}</div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontSize: 18, fontWeight: 800, color: meta.color, fontFamily: "'DM Mono', monospace" }}>{count}</span>
+                    <span style={{ fontSize: 10, color: '#BBA8A4', marginLeft: 4 }}>{pct}%</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {censusData.counts.other > 0 && (
+            <div style={{ marginTop: 8, fontSize: 11, color: '#BBA8A4', padding: '6px 10px', background: '#FBF7F6', borderRadius: 6 }}>
+              ⓘ {censusData.counts.other} patients had unrecognized status values — check that your Pariox status column matches expected values (Active, On Hold, Auth Pending, Waitlist, Eval Pending)
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* How to export tip */}
+      {!censusData && (
+        <div style={{ marginTop: 16, padding: '12px 16px', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#1565C0', marginBottom: 6 }}>How to export from Pariox</div>
+          <div style={{ fontSize: 11, color: '#1565C0', lineHeight: 1.7 }}>
+            1. Log into Pariox → Reports<br/>
+            2. Find "Patient List" or "Patient Census" report<br/>
+            3. Filter by all active statuses (Active, On Hold, Auth Pending, Waitlist, Eval Pending)<br/>
+            4. Export as CSV or Excel<br/>
+            5. Upload here — the status column is auto-detected
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GoogleDriveLinkPanel({ driveLinks, onAddLink, onRemoveLink }) {
   const [newLink, setNewLink] = useState({ label: '', url: '' });
   const [adding, setAdding] = useState(false);
@@ -519,6 +690,168 @@ export default function DirectorDashboard() {
     try { const s = localStorage.getItem('axiom_staff_dir'); return s ? JSON.parse(s) : {}; } catch { return {}; }
   });
   const [staffFilter, setStaffFilter] = useState('all');
+  const [staffSearch, setStaffSearch] = useState('');
+  const [editingStaff, setEditingStaff] = useState(null);
+  const [censusData, setCensusData] = useState(() => {
+    try { const s = localStorage.getItem('axiom_census'); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
+  const [censusUploadError, setCensusUploadError] = useState('');
+  const [censusProcessing, setCensusProcessing] = useState(false);
+
+  const saveCensusData = (data) => {
+    setCensusData(data);
+    try { localStorage.setItem('axiom_census', JSON.stringify(data)); } catch(e) {}
+  };
+
+  // Parse Pariox census file — handles exact column names from Census export
+  const parseCensusFile = (text) => {
+    const rawLines = text.trim().split('\n');
+    if (rawLines.length < 2) return null;
+
+    function parseCSVLine2(line) {
+      const result = []; let cur = ''; let inQ = false;
+      for (let i = 0; i < line.length; i++) {
+        if (line[i] === '"') { inQ = !inQ; }
+        else if (line[i] === ',' && !inQ) { result.push(cur.trim().replace(/^"|"$/g,'')); cur = ''; }
+        else { cur += line[i]; }
+      }
+      result.push(cur.trim().replace(/^"|"$/g,''));
+      return result;
+    }
+
+    const headers2 = parseCSVLine2(rawLines[0]).map(h => h.toLowerCase().trim());
+    const statusIdx2  = headers2.findIndex(h => h === 'status');
+    const patientIdx2 = headers2.findIndex(h => h === 'patient');
+    const regionIdx2  = headers2.findIndex(h => h === 'region');
+    const discIdx2    = headers2.findIndex(h => h === 'disc');
+    const insIdx2     = headers2.findIndex(h => h === 'insurance');
+    const socIdx2     = headers2.findIndex(h => h === 'soc');
+    const refIdx2     = headers2.findIndex(h => h === 'ref source');
+    const changedIdx2 = headers2.findIndex(h => h === 'changed');
+
+    if (statusIdx2 === -1) return null;
+
+    // Exact Pariox status mapping — including truncated values
+    const STATUS_MAP = {
+      'active':                'active',
+      'active - auth pendin':  'active_auth_pending',
+      'active - auth pending': 'active_auth_pending',
+      'auth pending':          'auth_pending',
+      'soc pending':           'soc_pending',
+      'eval pending':          'eval_pending',
+      'evaluation pending':    'eval_pending',
+      'waitlist':              'waitlist',
+      'on hold':               'on_hold',
+      'on hold - facility':    'on_hold_facility',
+      'on hold - pt request':  'on_hold_pt',
+      'on hold - md request':  'on_hold_md',
+      'hospitalized':          'hospitalized',
+      'discharge - change i':  'discharge',
+      'discharge':             'discharge',
+    };
+
+    // Active census = Active + Active-Auth Pending
+    const ACTIVE_STATUSES = new Set(['active', 'active_auth_pending']);
+
+    const counts = {
+      active: 0, active_auth_pending: 0, auth_pending: 0, soc_pending: 0,
+      eval_pending: 0, waitlist: 0, on_hold: 0, on_hold_facility: 0,
+      on_hold_pt: 0, on_hold_md: 0, hospitalized: 0, discharge: 0, other: 0
+    };
+
+    const byRegion = {};
+    const patients = [];
+    let unknownStatuses = new Set();
+
+    for (let i = 1; i < rawLines.length; i++) {
+      if (!rawLines[i].trim()) continue;
+      const cols = parseCSVLine2(rawLines[i]);
+      const rawStatus = (cols[statusIdx2] || '').trim();
+      const statusKey = STATUS_MAP[rawStatus.toLowerCase()] || 'other';
+      if (statusKey === 'other' && rawStatus) unknownStatuses.add(rawStatus);
+
+      counts[statusKey] = (counts[statusKey] || 0) + 1;
+
+      const patient  = patientIdx2  >= 0 ? cols[patientIdx2]  : '';
+      const region   = regionIdx2   >= 0 ? cols[regionIdx2]   : '';
+      const disc     = discIdx2     >= 0 ? cols[discIdx2]      : '';
+      const ins      = insIdx2      >= 0 ? cols[insIdx2]       : '';
+      const soc      = socIdx2      >= 0 ? cols[socIdx2]       : '';
+      const ref      = refIdx2      >= 0 ? cols[refIdx2]       : '';
+
+      if (region) {
+        if (!byRegion[region]) {
+          byRegion[region] = {
+            total: 0, activeCensus: 0,
+            active: 0, active_auth_pending: 0, auth_pending: 0, soc_pending: 0,
+            eval_pending: 0, waitlist: 0, on_hold: 0, on_hold_facility: 0,
+            on_hold_pt: 0, on_hold_md: 0, hospitalized: 0, discharge: 0, other: 0,
+            patients: []
+          };
+        }
+        byRegion[region].total++;
+        byRegion[region][statusKey] = (byRegion[region][statusKey] || 0) + 1;
+        if (ACTIVE_STATUSES.has(statusKey)) byRegion[region].activeCensus++;
+        byRegion[region].patients.push({ name: patient, status: statusKey, rawStatus, disc, ins, soc, ref });
+      }
+
+      patients.push({ name: patient, status: statusKey, rawStatus, region, disc, ins, soc, ref });
+    }
+
+    const activeCensus = counts.active + counts.active_auth_pending;
+
+    return {
+      counts, byRegion, patients,
+      total: rawLines.length - 1,
+      activeCensus,
+      unknownStatuses: Array.from(unknownStatuses),
+      lastUpdated: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      detectedStatusCol: rawLines[0].split(',')[statusIdx2] || 'Status',
+    };
+  };
+
+
+
+  const [staffDirTab, setStaffDirTab] = useState('directory');
+
+  const saveStaffDirectory = (dir) => {
+    setStaffDirectory(dir);
+    try { localStorage.setItem('axiom_staff_dir', JSON.stringify(dir)); } catch(e) {}
+  };
+
+  // Auto-populate directory from Pariox data when uploaded
+  const syncStaffFromPariox = (parsedData) => {
+    if (!parsedData?.staffList) return;
+    setStaffDirectory(prev => {
+      const updated = { ...prev };
+      parsedData.staffList.forEach(s => {
+        if (!updated[s.name]) {
+          // Auto-classify: PT/OT appearing in 3+ regions = likely telehealth
+          const isLikelyTelehealth = s.regionCount >= 3 && (s.discipline.includes('PT') || s.discipline === 'OT') && !s.discipline.includes('PTA');
+          updated[s.name] = {
+            name: s.name,
+            discipline: s.discipline,
+            classification: isLikelyTelehealth ? 'telehealth' : 'field',
+            regions: s.regions,
+            status: 'active',
+            role: s.discipline.includes('PTA') || s.discipline === 'COTA' ? 'treating' : 'supervisory',
+            phone: '', email: '', notes: '',
+            weeklyVisits: s.totalVisits,
+            uniquePatients: s.uniquePatients,
+          };
+        } else {
+          // Update visit/patient counts but preserve manual overrides
+          updated[s.name] = { ...updated[s.name], weeklyVisits: s.totalVisits, uniquePatients: s.uniquePatients, regions: s.regions };
+        }
+      });
+      try { localStorage.setItem('axiom_staff_dir', JSON.stringify(updated)); } catch(e) {}
+      return updated;
+    });
+  };
+  const [staffDirectory, setStaffDirectory] = useState(() => {
+    try { const s = localStorage.getItem('axiom_staff_dir'); return s ? JSON.parse(s) : {}; } catch { return {}; }
+  });
+  const [staffFilter, setStaffFilter] = useState('all');
   const [staffSort, setStaffSort] = useState('visits_desc');
   const [driveLinks, setDriveLinks] = useState(() => { try { return JSON.parse(localStorage.getItem('axiom_drive_links') || '[]'); } catch { return []; } });
 
@@ -550,6 +883,7 @@ export default function DirectorDashboard() {
   const handleCSV = data => {
     setCsvData(data);
     if (data.completedVisits > 0) setManualVisits(data.completedVisits);
+    if (data.staffList?.length > 0) syncStaffFromPariox(data);
     try { localStorage.setItem('axiom_pariox_data', JSON.stringify(data)); } catch(e) {}
 
     // Auto-populate staff directory from Pariox staffStats
@@ -643,6 +977,87 @@ export default function DirectorDashboard() {
         {/* ── OVERVIEW ────────────────────────────────────────── */}
         {activeTab === 'overview' && (
           <>
+
+            {/* ── VISIT THUMBNAIL ─────────────────────────────── */}
+            {(() => {
+              const weekStart = (() => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); })();
+              const weekEnd = (() => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 5); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); })();
+              const scheduledThisWeek = hasPariox ? (csvData.dedupedCount || csvData.scheduledVisits || 0) : 0;
+              const completedThisWeek = hasPariox ? (csvData.completedVisits || 0) : totalCompleted;
+              const paceColor = scheduledThisWeek >= VISIT_TARGET ? B.green : scheduledThisWeek >= VISIT_TARGET * 0.8 ? B.yellow : B.red;
+              const completionPct = scheduledThisWeek > 0 ? Math.round(completedThisWeek / scheduledThisWeek * 100) : 0;
+
+              return (
+                <div style={{
+                  background: `linear-gradient(135deg, ${B.darkRed} 0%, ${B.red} 50%, ${B.orange} 100%)`,
+                  borderRadius: 16, padding: '18px 28px', marginBottom: 20,
+                  display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap',
+                  boxShadow: '0 4px 16px rgba(139,26,16,0.2)',
+                  position: 'relative', overflow: 'hidden'
+                }}>
+                  {/* Background pattern */}
+                  <div style={{ position: 'absolute', inset: 0, opacity: 0.06, backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
+
+                  <div style={{ flex: 1, minWidth: 200, position: 'relative' }}>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 4 }}>
+                      📅 This Week's Schedule · {weekStart} – {weekEnd}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                      <span style={{ fontSize: 44, fontWeight: 800, color: '#fff', fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>
+                        {hasPariox ? scheduledThisWeek.toLocaleString() : '—'}
+                      </span>
+                      <span style={{ fontSize: 16, color: 'rgba(255,255,255,0.65)' }}>
+                        visits on schedule
+                      </span>
+                    </div>
+                    {hasPariox && (
+                      <div style={{ marginTop: 10 }}>
+                        <div style={{ height: 5, background: 'rgba(255,255,255,0.2)', borderRadius: 3, marginBottom: 5 }}>
+                          <div style={{ height: '100%', width: `${Math.min(scheduledThisWeek / VISIT_TARGET * 100, 100)}%`, background: '#fff', borderRadius: 3, transition: 'width 0.5s ease' }} />
+                        </div>
+                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>
+                          {scheduledThisWeek >= VISIT_TARGET
+                            ? `✓ At or above ${VISIT_TARGET} visit target`
+                            : `${VISIT_TARGET - scheduledThisWeek} below the ${VISIT_TARGET}-visit sustainability threshold`}
+                        </div>
+                      </div>
+                    )}
+                    {!hasPariox && (
+                      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 6 }}>Upload Pariox weekly export to populate</div>
+                    )}
+                  </div>
+
+                  {/* Divider */}
+                  <div style={{ width: 1, height: 60, background: 'rgba(255,255,255,0.2)', display: 'none' }} />
+
+                  {/* Stats row */}
+                  {hasPariox && (
+                    <div style={{ display: 'flex', gap: 20, position: 'relative' }}>
+                      {[
+                        { label: 'Completed', value: completedThisWeek, sub: `${completionPct}% done` },
+                        { label: 'Remaining', value: Math.max(0, scheduledThisWeek - completedThisWeek), sub: 'this week' },
+                        { label: 'Clinicians', value: csvData.staffList?.length || '—', sub: 'on schedule' },
+                        { label: 'Patients', value: csvData.uniquePatients || '—', sub: 'this week' },
+                      ].map((s, i) => (
+                        <div key={s.label} style={{ textAlign: 'center', paddingLeft: i > 0 ? 20 : 0, borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
+                          <div style={{ fontSize: 24, fontWeight: 800, color: '#fff', fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{s.value}</div>
+                          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 3 }}>{s.label}</div>
+                          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>{s.sub}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Last upload badge */}
+                  {hasPariox && (
+                    <div style={{ position: 'absolute', top: 10, right: 14, fontSize: 10, color: 'rgba(255,255,255,0.5)', background: 'rgba(0,0,0,0.15)', borderRadius: 6, padding: '3px 8px' }}>
+                      {dataSource}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 18, padding: '24px 32px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap', boxShadow: '0 1px 6px rgba(139,26,16,0.06)' }}>
               <div style={{ flex: 1, minWidth: 280 }}>
                 <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>
@@ -681,6 +1096,142 @@ export default function DirectorDashboard() {
               <StatCard icon="📌" label="Open Tasks" value={totalOpenTasks || 0} sub="Team total" color={B.orange} />
               <StatCard icon="📊" label="Morning Reports" value={`${reportsIn}/${coordinators.length}`} sub="Submitted by 9 AM" color={reportsIn < coordinators.length ? B.danger : B.green} alert={reportsIn < coordinators.length ? `${coordinators.length - reportsIn} missing` : null} />
             </div>
+
+            {/* ── PATIENT CENSUS ──────────────────────────────── */}
+            {(() => {
+              const STATUS_META = {
+                active:              { label: 'Active',             color: B.green,   bg: '#F0FDF4', border: '#BBF7D0', icon: '✅', desc: 'In treatment' },
+                active_auth_pending: { label: 'Active–Auth Pend',   color: B.orange,  bg: '#FFF7ED', border: '#FED7AA', icon: '⏳', desc: 'Treating, auth at risk' },
+                auth_pending:        { label: 'Auth Pending',       color: B.yellow,  bg: '#FFFBEB', border: '#FDE68A', icon: '🔒', desc: 'Blocked — no auth' },
+                soc_pending:         { label: 'SOC Pending',        color: '#0284C7', bg: '#F0F9FF', border: '#BAE6FD', icon: '📅', desc: 'Start of care pending' },
+                eval_pending:        { label: 'Eval Pending',       color: '#1565C0', bg: '#EFF6FF', border: '#BFDBFE', icon: '🩺', desc: 'Pipeline' },
+                waitlist:            { label: 'Waitlist',           color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE', icon: '📋', desc: 'Needs scheduling' },
+                on_hold:             { label: 'On Hold',            color: '#6B7280', bg: '#F9FAFB', border: '#E5E7EB', icon: '⏸️', desc: 'Revenue paused' },
+                on_hold_facility:    { label: 'On Hold–Facility',   color: '#9CA3AF', bg: '#F9FAFB', border: '#E5E7EB', icon: '🏥', desc: 'Facility hold' },
+                on_hold_pt:          { label: 'On Hold–Pt Req',     color: '#9CA3AF', bg: '#F9FAFB', border: '#E5E7EB', icon: '🙋', desc: 'Patient requested' },
+                on_hold_md:          { label: 'On Hold–MD Req',     color: '#9CA3AF', bg: '#F9FAFB', border: '#E5E7EB', icon: '👨‍⚕️', desc: 'MD ordered hold' },
+                hospitalized:        { label: 'Hospitalized',       color: '#DC2626', bg: '#FEF2F2', border: '#FECACA', icon: '🚨', desc: 'In hospital' },
+                discharge:           { label: 'Discharge',          color: '#BBA8A4', bg: '#FAFAFA', border: '#E5E7EB', icon: '📤', desc: 'Discharged' },
+              };
+              const hasCensus = !!(censusData && censusData.counts);
+              const totalCensus = hasCensus ? censusData.total : null;
+              const activeCensus = hasCensus ? censusData.activeCensus : null;
+              const [selectedCensusRegion, setSelectedCensusRegion] = React.useState('all');
+              const regionKeys = hasCensus ? Object.keys(censusData.byRegion || {}).sort() : [];
+              const displayCounts = hasCensus && selectedCensusRegion !== 'all' && censusData.byRegion[selectedCensusRegion]
+                ? censusData.byRegion[selectedCensusRegion]
+                : (hasCensus ? censusData.counts : null);
+              const displayTotal = hasCensus && selectedCensusRegion !== 'all' && censusData.byRegion[selectedCensusRegion]
+                ? censusData.byRegion[selectedCensusRegion].total
+                : totalCensus;
+              const displayActive = hasCensus && selectedCensusRegion !== 'all' && censusData.byRegion[selectedCensusRegion]
+                ? censusData.byRegion[selectedCensusRegion].activeCensus
+                : activeCensus;
+
+              return (
+                <div style={{ marginBottom: 20 }}>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                       <div style={{ fontSize: 12, fontWeight: 700, color: B.black, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Patient Census</div>
+                       {hasCensus && <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700, color: B.green }}>{displayActive} Active Census</div>}
+                       {hasCensus && <div style={{ fontSize: 11, color: B.lightGray }}>{displayTotal} total{selectedCensusRegion !== 'all' ? ` in Region ${selectedCensusRegion}` : ''} · {censusData.lastUpdated}</div>}
+                     </div>
+                     <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
+                       {hasCensus && <span style={{ fontSize: 11, color: B.lightGray, marginRight: 2 }}>Region:</span>}
+                       {hasCensus && ['all', ...regionKeys].map(r => (
+                         <button key={r} onClick={() => setSelectedCensusRegion(r)} style={{
+                           padding: '4px 9px', borderRadius: 6, border: `1px solid ${selectedCensusRegion === r ? B.red : B.border}`,
+                           background: selectedCensusRegion === r ? '#FFF5F2' : 'transparent',
+                           color: selectedCensusRegion === r ? B.red : B.gray,
+                           fontSize: 11, fontWeight: selectedCensusRegion === r ? 700 : 400,
+                           cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s'
+                         }}>{r === 'all' ? 'All' : `R${r}`}</button>
+                       ))}
+                       {!hasCensus && <button onClick={() => setActiveTab('data')} style={{ background: 'none', border: `1px solid ${B.border}`, borderRadius: 7, color: B.gray, padding: '5px 10px', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' }}>Upload Census →</button>}
+                     </div>
+                   </div>
+
+                   {hasCensus ? (
+                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+                       {Object.entries(STATUS_META).map(([key, meta]) => {
+                         const count = (displayCounts && displayCounts[key]) || 0;
+                         const pct = displayTotal > 0 ? Math.round(count / displayTotal * 100) : 0;
+                         return (
+                           <div key={key} style={{ background: meta.bg, border: `1px solid ${meta.border}`, borderRadius: 12, padding: '12px 14px', position: 'relative', overflow: 'hidden' }}>
+                             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: meta.color }} />
+                             <div style={{ fontSize: 10, color: meta.color, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>{meta.icon} {meta.label}</div>
+                             <div style={{ fontSize: 26, fontWeight: 800, color: meta.color, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{count}</div>
+                             <div style={{ fontSize: 10, color: meta.color, opacity: 0.7, marginTop: 3 }}>{pct}% of {selectedCensusRegion === 'all' ? 'census' : `Region ${selectedCensusRegion}`}</div>
+                             <div style={{ fontSize: 10, color: '#6B7280', marginTop: 1 }}>{meta.desc}</div>
+                             <div style={{ marginTop: 6, height: 3, background: 'rgba(0,0,0,0.08)', borderRadius: 2 }}>
+                               <div style={{ height: '100%', width: `${pct}%`, background: meta.color, borderRadius: 2, transition: 'width 0.4s ease' }} />
+                             </div>
+                           </div>
+                         );
+                       })}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
+                      {Object.entries(STATUS_META).map(([key, meta]) => (
+                        <div key={key} style={{ background: '#FAFAFA', border: `1px solid ${B.border}`, borderRadius: 12, padding: '14px 16px', opacity: 0.6 }}>
+                          <div style={{ fontSize: 10, color: B.lightGray, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>{meta.icon} {meta.label}</div>
+                          <div style={{ fontSize: 30, fontWeight: 800, color: B.lightGray, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>—</div>
+                          <div style={{ fontSize: 10, color: B.lightGray, marginTop: 4 }}>{meta.desc}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Revenue at risk callout */}
+                  {hasCensus && displayCounts && ((displayCounts.auth_pending||0) + (displayCounts.active_auth_pending||0) + (displayCounts.on_hold||0)) > 0 && (() => {
+                    const atRisk = (displayCounts.auth_pending||0) + (displayCounts.active_auth_pending||0);
+                    const onHold = (displayCounts.on_hold||0) + (displayCounts.on_hold_facility||0) + (displayCounts.on_hold_pt||0) + (displayCounts.on_hold_md||0);
+                    const estRevenueRisk = atRisk * 3 * 85; // avg 3 visits/week @ $85
+                    return (
+                      <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        {atRisk > 0 && (
+                          <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: '#92400E' }}>⚠️ Authorization Revenue Risk</div>
+                              <div style={{ fontSize: 11, color: '#92400E', marginTop: 2 }}>{atRisk} patients blocked — estimated ${estRevenueRisk.toLocaleString()}/wk at risk</div>
+                            </div>
+                            <div style={{ fontSize: 24, fontWeight: 800, color: B.yellow, fontFamily: "'DM Mono', monospace" }}>{atRisk}</div>
+                          </div>
+                        )}
+                        {onHold > 0 && (
+                          <div style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 10, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>⏸️ On Hold — Paused Revenue</div>
+                              <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>{onHold} patients not generating visits{selectedCensusRegion !== 'all' ? ` in Region ${selectedCensusRegion}` : ''}</div>
+                            </div>
+                            <div style={{ fontSize: 24, fontWeight: 800, color: '#6B7280', fontFamily: "'DM Mono', monospace" }}>{onHold}</div>
+                          </div>
+                        )}
+                        {(displayCounts.soc_pending||0) > 0 && (
+                          <div style={{ background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 10, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: '#0284C7' }}>📅 SOC Pending — Ready to Start</div>
+                              <div style={{ fontSize: 11, color: '#0284C7', marginTop: 2 }}>{displayCounts.soc_pending} patients awaiting start of care{selectedCensusRegion !== 'all' ? ` in Region ${selectedCensusRegion}` : ''}</div>
+                            </div>
+                            <div style={{ fontSize: 24, fontWeight: 800, color: '#0284C7', fontFamily: "'DM Mono', monospace" }}>{displayCounts.soc_pending}</div>
+                          </div>
+                        )}
+                        {(displayCounts.hospitalized||0) > 0 && (
+                          <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: '#DC2626' }}>🚨 Hospitalized</div>
+                              <div style={{ fontSize: 11, color: '#DC2626', marginTop: 2 }}>{displayCounts.hospitalized} patients currently hospitalized — monitor for readmission risk</div>
+                            </div>
+                            <div style={{ fontSize: 24, fontWeight: 800, color: '#DC2626', fontFamily: "'DM Mono', monospace" }}>{displayCounts.hospitalized}</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
+
 
             <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '20px 24px', boxShadow: '0 1px 6px rgba(139,26,16,0.06)' }}>
               <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: B.lightGray, marginBottom: 14 }}>Live Alerts</div>
@@ -1499,6 +2050,242 @@ ${directorNotes.length > 0 ? 'DIRECTOR NOTES\n' + directorNotes.slice(0,3).map(n
           );
         })()}
 
+
+        {/* ── STAFF DIRECTORY ─────────────────────────────────── */}
+        {activeTab === 'staff' && (() => {
+          const DISC_CONFIG = {
+            'LYMPHEDEMA PT':  { label: 'PT',   color: '#1565C0', bg: '#EFF6FF', border: '#BFDBFE', role: 'supervisory' },
+            'LYMPHEDEMA PTA': { label: 'PTA',  color: B.red,     bg: '#FFF5F2', border: '#FDDDD5', role: 'treating' },
+            'OT':             { label: 'OT',   color: '#6D28D9', bg: '#F5F3FF', border: '#DDD6FE', role: 'supervisory' },
+            'COTA':           { label: 'COTA', color: '#059669', bg: '#ECFDF5', border: '#A7F3D0', role: 'treating' },
+          };
+          const CLASS_CONFIG = {
+            telehealth: { label: 'Telehealth', color: '#6D28D9', bg: '#F5F3FF', border: '#DDD6FE', icon: '💻' },
+            field:      { label: 'Field',      color: '#059669', bg: '#ECFDF5', border: '#A7F3D0', icon: '🏠' },
+          };
+
+          const allStaff = Object.values(staffDirectory);
+          const filtered = allStaff
+            .filter(s => {
+              if (staffFilter === 'telehealth') return s.classification === 'telehealth';
+              if (staffFilter === 'field') return s.classification === 'field';
+              if (staffFilter === 'pt') return s.discipline === 'LYMPHEDEMA PT';
+              if (staffFilter === 'pta') return s.discipline === 'LYMPHEDEMA PTA';
+              if (staffFilter === 'ot') return s.discipline === 'OT';
+              if (staffFilter === 'cota') return s.discipline === 'COTA';
+              if (staffFilter === 'mismatch') return s.classification === 'telehealth' && s.discipline.includes('PTA') || s.classification === 'telehealth' && s.discipline === 'COTA';
+              return true;
+            })
+            .filter(s => !staffSearch || s.name.toLowerCase().includes(staffSearch.toLowerCase()))
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+          const telehealthCount = allStaff.filter(s => s.classification === 'telehealth').length;
+          const fieldCount = allStaff.filter(s => s.classification === 'field').length;
+          const mismatches = allStaff.filter(s =>
+            (s.classification === 'telehealth' && (s.discipline === 'LYMPHEDEMA PTA' || s.discipline === 'COTA')) ||
+            (s.classification === 'field' && (s.discipline === 'LYMPHEDEMA PT' || s.discipline === 'OT') && s.regionCount <= 2)
+          );
+
+          return (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>Staff Directory</div>
+                  <div style={{ fontSize: 13, color: B.gray }}>
+                    {allStaff.length > 0
+                      ? `${allStaff.length} clinicians · ${telehealthCount} telehealth · ${fieldCount} field${mismatches.length > 0 ? ` · ⚠️ ${mismatches.length} classification to review` : ''}`
+                      : 'Upload a Pariox report to auto-populate the directory'}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {allStaff.length === 0 && (
+                    <button onClick={() => setActiveTab('data')} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 8, color: '#fff', padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Upload Pariox →</button>
+                  )}
+                </div>
+              </div>
+
+              {/* Mismatch alert */}
+              {mismatches.length > 0 && (
+                <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                  <span style={{ fontSize: 18 }}>⚠️</span>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#92400E', marginBottom: 4 }}>Classification Review Required</div>
+                    <div style={{ fontSize: 12, color: '#92400E' }}>
+                      {mismatches.map(s => `${s.name} (${DISC_CONFIG[s.discipline]?.label || s.discipline}) is marked as ${s.classification}`).join(' · ')}
+                    </div>
+                    <button onClick={() => setStaffFilter('mismatch')} style={{ marginTop: 8, background: '#92400E', border: 'none', borderRadius: 6, color: '#fff', padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Review these →</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Summary cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+                {[
+                  { label: 'PT / Supervisory', value: allStaff.filter(s => s.discipline === 'LYMPHEDEMA PT').length, color: '#1565C0', icon: '🩺' },
+                  { label: 'PTA / Treating', value: allStaff.filter(s => s.discipline === 'LYMPHEDEMA PTA').length, color: B.red, icon: '👐' },
+                  { label: 'OT / Supervisory', value: allStaff.filter(s => s.discipline === 'OT').length, color: '#6D28D9', icon: '🖐️' },
+                  { label: 'COTA / Treating', value: allStaff.filter(s => s.discipline === 'COTA').length, color: '#059669', icon: '🤝' },
+                ].map(c => (
+                  <div key={c.label} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 12, padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                    <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>{c.icon} {c.label}</div>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: c.color, fontFamily: "'DM Mono', monospace" }}>{c.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Filters + Search */}
+              <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input value={staffSearch} onChange={e => setStaffSearch(e.target.value)} placeholder="Search by name..."
+                  style={{ padding: '8px 14px', border: `1.5px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', color: B.black, width: 220 }} />
+                {[
+                  { key: 'all', label: 'All' },
+                  { key: 'telehealth', label: '💻 Telehealth' },
+                  { key: 'field', label: '🏠 Field' },
+                  { key: 'pt', label: 'PT' },
+                  { key: 'pta', label: 'PTA' },
+                  { key: 'ot', label: 'OT' },
+                  { key: 'cota', label: 'COTA' },
+                  ...(mismatches.length > 0 ? [{ key: 'mismatch', label: `⚠️ Review (${mismatches.length})` }] : []),
+                ].map(f => (
+                  <button key={f.key} onClick={() => setStaffFilter(f.key)} style={{
+                    padding: '7px 14px', borderRadius: 8, border: `1px solid ${staffFilter === f.key ? B.red : B.border}`,
+                    background: staffFilter === f.key ? '#FFF5F2' : 'transparent',
+                    color: staffFilter === f.key ? B.red : B.gray,
+                    fontSize: 12, fontWeight: staffFilter === f.key ? 700 : 400, cursor: 'pointer', fontFamily: 'inherit'
+                  }}>{f.label}</button>
+                ))}
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: B.lightGray }}>{filtered.length} clinicians</span>
+              </div>
+
+              {/* Staff Table */}
+              {allStaff.length === 0 ? (
+                <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '48px 24px', textAlign: 'center', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                  <div style={{ fontSize: 36, marginBottom: 12 }}>👥</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: B.black, marginBottom: 8 }}>Directory is empty</div>
+                  <div style={{ fontSize: 13, color: B.gray }}>Upload a Pariox report and the directory auto-populates with all clinicians, disciplines, and regions</div>
+                </div>
+              ) : (
+                <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, overflow: 'hidden', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                  {/* Table Header */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '200px 90px 120px 130px 90px 90px 1fr', padding: '10px 20px', background: '#FBF7F6', borderBottom: `1px solid ${B.border}` }}>
+                    {['Clinician', 'Disc', 'Classification', 'Regions', 'Visits', 'Patients', 'Actions'].map((h, i) => (
+                      <div key={h} style={{ fontSize: 10, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', textAlign: i > 1 && i < 6 ? 'center' : 'left' }}>{h}</div>
+                    ))}
+                  </div>
+
+                  {filtered.map(staff => {
+                    const dc = DISC_CONFIG[staff.discipline] || { label: staff.discipline, color: B.gray, bg: '#F9FAFB', border: '#E5E7EB' };
+                    const cc = CLASS_CONFIG[staff.classification] || CLASS_CONFIG.field;
+                    const isEditing = editingStaff === staff.name;
+                    const isMismatch = mismatches.find(m => m.name === staff.name);
+
+                    return (
+                      <div key={staff.name} style={{ borderBottom: `1px solid #FAF4F2`, background: isMismatch ? '#FFFBEB' : 'transparent' }}>
+                        {/* Main row */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '200px 90px 120px 130px 90px 90px 1fr', padding: '12px 20px', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: B.black }}>{staff.name}</div>
+                            {staff.status === 'inactive' && <div style={{ fontSize: 10, color: B.lightGray }}>Inactive</div>}
+                            {isMismatch && <div style={{ fontSize: 10, color: '#D97706', fontWeight: 600 }}>⚠ Review classification</div>}
+                          </div>
+
+                          <div>
+                            <span style={{ background: dc.bg, border: `1px solid ${dc.border}`, color: dc.color, borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700 }}>{dc.label}</span>
+                          </div>
+
+                          <div>
+                            {isEditing ? (
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                {['telehealth', 'field'].map(cls => (
+                                  <button key={cls} onClick={() => {
+                                    const updated = { ...staffDirectory, [staff.name]: { ...staff, classification: cls } };
+                                    saveStaffDirectory(updated);
+                                  }} style={{
+                                    padding: '4px 8px', borderRadius: 6, border: `1px solid ${staff.classification === cls ? CLASS_CONFIG[cls].border : B.border}`,
+                                    background: staff.classification === cls ? CLASS_CONFIG[cls].bg : 'transparent',
+                                    color: staff.classification === cls ? CLASS_CONFIG[cls].color : B.lightGray,
+                                    fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit'
+                                  }}>{CLASS_CONFIG[cls].icon} {CLASS_CONFIG[cls].label}</button>
+                                ))}
+                              </div>
+                            ) : (
+                              <span style={{ background: cc.bg, border: `1px solid ${cc.border}`, color: cc.color, borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700 }}>{cc.icon} {cc.label}</span>
+                            )}
+                          </div>
+
+                          <div style={{ textAlign: 'center', fontSize: 11, color: B.gray }}>{staff.regions}</div>
+                          <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 700, color: B.black, fontFamily: "'DM Mono', monospace" }}>{staff.weeklyVisits || 0}</div>
+                          <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 700, color: B.black, fontFamily: "'DM Mono', monospace" }}>{staff.uniquePatients || 0}</div>
+
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button onClick={() => setEditingStaff(isEditing ? null : staff.name)} style={{
+                              background: isEditing ? B.green : 'transparent', border: `1px solid ${isEditing ? B.green : B.border}`,
+                              borderRadius: 7, color: isEditing ? '#fff' : B.gray, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit'
+                            }}>{isEditing ? '✓ Done' : 'Edit'}</button>
+                            <button onClick={() => {
+                              const updated = { ...staffDirectory, [staff.name]: { ...staff, status: staff.status === 'inactive' ? 'active' : 'inactive' } };
+                              saveStaffDirectory(updated);
+                            }} style={{
+                              background: 'transparent', border: `1px solid ${B.border}`,
+                              borderRadius: 7, color: staff.status === 'inactive' ? B.green : B.lightGray,
+                              padding: '5px 10px', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit'
+                            }}>{staff.status === 'inactive' ? 'Activate' : 'Deactivate'}</button>
+                          </div>
+                        </div>
+
+                        {/* Edit panel */}
+                        {isEditing && (
+                          <div style={{ margin: '0 20px 16px', background: '#FBF7F6', border: `1px solid ${B.border}`, borderRadius: 10, padding: '16px' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: B.black, marginBottom: 12 }}>Edit {staff.name}</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                              <div>
+                                <label style={{ display: 'block', fontSize: 11, color: B.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Classification</label>
+                                <select value={staff.classification}
+                                  onChange={e => saveStaffDirectory({ ...staffDirectory, [staff.name]: { ...staff, classification: e.target.value } })}
+                                  style={{ width: '100%', padding: '8px 10px', border: `1px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', color: B.black, background: '#fff', outline: 'none' }}>
+                                  <option value="telehealth">💻 Telehealth</option>
+                                  <option value="field">🏠 Field</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label style={{ display: 'block', fontSize: 11, color: B.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Status</label>
+                                <select value={staff.status}
+                                  onChange={e => saveStaffDirectory({ ...staffDirectory, [staff.name]: { ...staff, status: e.target.value } })}
+                                  style={{ width: '100%', padding: '8px 10px', border: `1px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', color: B.black, background: '#fff', outline: 'none' }}>
+                                  <option value="active">Active</option>
+                                  <option value="inactive">Inactive</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label style={{ display: 'block', fontSize: 11, color: B.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Phone</label>
+                                <input value={staff.phone || ''} onChange={e => saveStaffDirectory({ ...staffDirectory, [staff.name]: { ...staff, phone: e.target.value } })}
+                                  placeholder="(407) 555-0100"
+                                  style={{ width: '100%', padding: '8px 10px', border: `1px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', color: B.black, outline: 'none' }} />
+                              </div>
+                              <div>
+                                <label style={{ display: 'block', fontSize: 11, color: B.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Email</label>
+                                <input value={staff.email || ''} onChange={e => saveStaffDirectory({ ...staffDirectory, [staff.name]: { ...staff, email: e.target.value } })}
+                                  placeholder="name@axiomhealth.com"
+                                  style={{ width: '100%', padding: '8px 10px', border: `1px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', color: B.black, outline: 'none' }} />
+                              </div>
+                              <div style={{ gridColumn: 'span 2' }}>
+                                <label style={{ display: 'block', fontSize: 11, color: B.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>Notes</label>
+                                <input value={staff.notes || ''} onChange={e => saveStaffDirectory({ ...staffDirectory, [staff.name]: { ...staff, notes: e.target.value } })}
+                                  placeholder="Schedule notes, supervision assignments, issues..."
+                                  style={{ width: '100%', padding: '8px 10px', border: `1px solid ${B.border}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', color: B.black, outline: 'none' }} />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* ── DATA ─────────────────────────────────────────────── */}
         {activeTab === 'data' && (
           <div>
@@ -1507,6 +2294,18 @@ ${directorNotes.length > 0 ? 'DIRECTOR NOTES\n' + directorNotes.slice(0,3).map(n
               <div style={{ fontSize: 13, color: B.gray }}>Import Pariox visit data and link Google Drive reports for live access</div>
             </div>
             <CSVUploadPanel onDataLoaded={handleCSV} csvData={csvData} />
+
+            {/* ── CENSUS UPLOAD ─────────────────────────────── */}
+            <CensusUploadPanel
+              censusData={censusData}
+              onDataLoaded={saveCensusData}
+              parseCensusFile={parseCensusFile}
+              error={censusUploadError}
+              setError={setCensusUploadError}
+              processing={censusProcessing}
+              setProcessing={setCensusProcessing}
+            />
+
             <GoogleDriveLinkPanel driveLinks={driveLinks} onAddLink={addDriveLink} onRemoveLink={removeDriveLink} />
           </div>
         )}
