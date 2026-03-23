@@ -931,10 +931,42 @@ export default function DirectorDashboard() {
 
   // Source label for UI
   const dataSource = hasPariox ? `Pariox · ${csvData.rowCount} records` : 'Coordinator Reports';
-  const visitPct = Math.min(Math.round((manualVisits / VISIT_TARGET) * 100), 100);
-  const visitGap = VISIT_TARGET - manualVisits;
+  const visitPct = Math.min(Math.round((manualVisits / CFG.visitTarget) * 100), 100);
+  const visitGap = CFG.visitTarget - manualVisits;
   const trendData = csvData?.dailyTrend?.length > 0 ? csvData.dailyTrend : weeklyData;
-  const tabs = ['overview', 'scorecard', 'expansion', 'staff', 'regions', 'team', 'trends', 'reports', 'data'];
+  const tabs = ['overview', 'revenue', 'scorecard', 'expansion', 'staff', 'regions', 'team', 'trends', 'reports', 'data', '⚙️'];
+
+  // ── Admin Settings (editable by director, persisted to localStorage) ──
+  const [settings, setSettings] = useState(() => {
+    try {
+      const s = localStorage.getItem('axiom_settings');
+      return s ? JSON.parse(s) : null;
+    } catch { return null; }
+  }) || {
+    visitTarget: 800,
+    revenueTarget: 200000,
+    avgReimbursement: 90,
+    activeCensusTarget: 500,
+    coordinatorCap: 80,
+    authRiskVisitsPerWeek: 3,
+    adminPin: '1234',
+  };
+
+  const [adminUnlocked, setAdminUnlocked] = useState(false);
+  const [adminPinInput, setAdminPinInput] = useState('');
+  const [adminPinError, setAdminPinError] = useState(false);
+  const [settingsDraft, setSettingsDraft] = useState(null);
+
+  const saveSettings = (s) => {
+    setSettings(s);
+    try { localStorage.setItem('axiom_settings', JSON.stringify(s)); } catch(e) {}
+  };
+
+  // Pull targets from settings (with fallbacks)
+  const CFG = settings || {
+    visitTarget: 800, revenueTarget: 200000, avgReimbursement: 90,
+    activeCensusTarget: 500, coordinatorCap: 80, authRiskVisitsPerWeek: 3, adminPin: '1234'
+  };
 
   if (loading) return <div style={{ minHeight: '100vh', background: B.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: B.lightGray, fontFamily: 'DM Sans, sans-serif' }}>Loading...</div>;
 
@@ -955,7 +987,7 @@ export default function DirectorDashboard() {
               border: activeTab === tab ? 'none' : `1px solid ${B.border}`,
               boxShadow: activeTab === tab ? '0 2px 8px rgba(217,79,43,0.3)' : 'none'
             }}>
-              {tab === 'data' ? '📊 Data' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === 'data' ? '📊 Data' : tab === '⚙️' ? '⚙️' : tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
           ))}
         </div>
@@ -981,7 +1013,7 @@ export default function DirectorDashboard() {
               const weekEnd = (() => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 5); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); })();
               const scheduledThisWeek = hasPariox ? (csvData.dedupedCount || csvData.scheduledVisits || 0) : 0;
               const completedThisWeek = hasPariox ? (csvData.completedVisits || 0) : totalCompleted;
-              const paceColor = scheduledThisWeek >= VISIT_TARGET ? B.green : scheduledThisWeek >= VISIT_TARGET * 0.8 ? B.yellow : B.red;
+              const paceColor = scheduledThisWeek >= CFG.visitTarget ? B.green : scheduledThisWeek >= CFG.visitTarget * 0.8 ? B.yellow : B.red;
               const completionPct = scheduledThisWeek > 0 ? Math.round(completedThisWeek / scheduledThisWeek * 100) : 0;
 
               return (
@@ -1010,12 +1042,12 @@ export default function DirectorDashboard() {
                     {hasPariox && (
                       <div style={{ marginTop: 10 }}>
                         <div style={{ height: 5, background: 'rgba(255,255,255,0.2)', borderRadius: 3, marginBottom: 5 }}>
-                          <div style={{ height: '100%', width: `${Math.min(scheduledThisWeek / VISIT_TARGET * 100, 100)}%`, background: '#fff', borderRadius: 3, transition: 'width 0.5s ease' }} />
+                          <div style={{ height: '100%', width: `${Math.min(scheduledThisWeek / CFG.visitTarget * 100, 100)}%`, background: '#fff', borderRadius: 3, transition: 'width 0.5s ease' }} />
                         </div>
                         <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>
-                          {scheduledThisWeek >= VISIT_TARGET
-                            ? `✓ At or above ${VISIT_TARGET} visit target`
-                            : `${VISIT_TARGET - scheduledThisWeek} below the ${VISIT_TARGET}-visit sustainability threshold`}
+                          {scheduledThisWeek >= CFG.visitTarget
+                            ? `✓ At or above ${CFG.visitTarget} visit target`
+                            : `${CFG.visitTarget - scheduledThisWeek} below the ${CFG.visitTarget}-visit sustainability threshold`}
                         </div>
                       </div>
                     )}
@@ -1062,7 +1094,7 @@ export default function DirectorDashboard() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
                   <input className="visits-input" type="number" value={manualVisits} onChange={e => { const v = parseInt(e.target.value) || 0; setManualVisits(v); try { localStorage.setItem('axiom_manual_visits', v); } catch(e) {} }} />
-                  <span style={{ fontSize: 16, color: B.lightGray }}>/ {VISIT_TARGET} visits/wk</span>
+                  <span style={{ fontSize: 16, color: B.lightGray }}>/ {CFG.visitTarget} visits/wk</span>
                 </div>
                 <div style={{ height: 8, background: '#F5EDEB', borderRadius: 4 }}>
                   <div style={{ height: '100%', width: `${visitPct}%`, borderRadius: 4, background: visitPct >= 100 ? B.green : `linear-gradient(90deg, ${B.darkRed}, ${B.red}, ${B.orange})`, transition: 'width 0.5s ease', boxShadow: '0 0 8px rgba(217,79,43,0.3)' }} />
@@ -1071,7 +1103,7 @@ export default function DirectorDashboard() {
               </div>
               {[
                 { label: 'Reports In', value: `${reportsIn}/${coordinators.length}`, color: reportsIn < coordinators.length ? B.danger : B.green },
-                { label: 'Gap to 800', value: visitGap > 0 ? visitGap : '✓', color: visitGap > 0 ? B.yellow : B.green },
+                { label: `Gap to ${CFG.visitTarget}`, value: visitGap > 0 ? visitGap : '✓', color: visitGap > 0 ? B.yellow : B.green },
                 { label: 'Auths Expiring', value: totalAuthsExpiring, color: totalAuthsExpiring > 5 ? B.danger : B.yellow },
               ].map(s => (
                 <div key={s.label} style={{ textAlign: 'center', borderLeft: `1px solid ${B.border}`, paddingLeft: 28 }}>
@@ -1731,16 +1763,16 @@ export default function DirectorDashboard() {
         {activeTab === 'scorecard' && (() => {
           const kpis = [
             {
-              label: 'Weekly Visits', value: manualVisits, target: VISIT_TARGET,
-              pct: Math.round(manualVisits/VISIT_TARGET*100),
-              status: manualVisits >= VISIT_TARGET ? 'green' : manualVisits >= VISIT_TARGET*0.8 ? 'yellow' : 'red',
-              sub: `${VISIT_TARGET - manualVisits > 0 ? VISIT_TARGET - manualVisits + ' below target' : 'Target met ✓'}`,
+              label: 'Weekly Visits', value: manualVisits, target: CFG.visitTarget,
+              pct: Math.round(manualVisits/CFG.visitTarget*100),
+              status: manualVisits >= CFG.visitTarget ? 'green' : manualVisits >= CFG.visitTarget*0.8 ? 'yellow' : 'red',
+              sub: `${CFG.visitTarget - manualVisits > 0 ? (CFG.visitTarget - manualVisits) + ' below target' : 'Target met ✓'}`,
               icon: '📅'
             },
             {
-              label: 'Census', value: totalPatients || '—', target: '320+',
-              pct: totalPatients ? Math.min(Math.round(totalPatients/320*100),100) : 0,
-              status: totalPatients >= 280 ? 'green' : totalPatients >= 200 ? 'yellow' : 'red',
+              label: 'Active Census', value: hasCensus ? censusData.activeCensus : (totalPatients || '—'), target: `${CFG.activeCensusTarget}+`,
+              pct: hasCensus ? Math.min(Math.round(censusData.activeCensus/CFG.activeCensusTarget*100),100) : (totalPatients ? Math.min(Math.round(totalPatients/CFG.activeCensusTarget*100),100) : 0),
+              status: (hasCensus ? censusData.activeCensus : totalPatients) >= CFG.activeCensusTarget ? 'green' : (hasCensus ? censusData.activeCensus : totalPatients) >= CFG.activeCensusTarget*0.8 ? 'yellow' : 'red',
               sub: totalPatients ? `${totalPatients} active patients` : 'Submit morning reports',
               icon: '👥'
             },
@@ -1839,7 +1871,7 @@ Prepared by: Liam O'Brien, Director of Operations
 ${'─'.repeat(50)}
 
 VISIT PERFORMANCE
-• Weekly Visits: ${manualVisits} / ${VISIT_TARGET} target (${Math.round(manualVisits/VISIT_TARGET*100)}%)
+• Weekly Visits: ${manualVisits} / ${CFG.visitTarget} target (${Math.round(manualVisits/CFG.visitTarget*100)}%)
 • Gap to Sustainability Threshold: ${visitGap > 0 ? visitGap + ' visits' : 'TARGET MET ✓'}
 • Visit Completion Rate: ${totalScheduled > 0 ? Math.round(totalCompleted/totalScheduled*100) + '%' : 'Pending coordinator reports'}
 • Missed Visits: ${totalMissed} (${totalMissed <= 2 ? 'Within threshold' : 'ABOVE threshold — action taken'})
@@ -2032,7 +2064,7 @@ ${directorNotes.length > 0 ? 'DIRECTOR NOTES\n' + directorNotes.slice(0,3).map(n
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
                   {[
                     { label: 'Additional Weekly Visits', value: Object.values(expansionData).reduce((s,e) => s + (e.weeklyVisitTarget||0), 0), color: B.red },
-                    { label: 'Combined Weekly Target', value: VISIT_TARGET + Object.values(expansionData).reduce((s,e) => s + (e.weeklyVisitTarget||0), 0), color: B.darkRed },
+                    { label: 'Combined Weekly Target', value: CFG.visitTarget + Object.values(expansionData).reduce((s,e) => s + (e.weeklyVisitTarget||0), 0), color: B.darkRed },
                     { label: 'Staff to Hire', value: Object.values(expansionData).reduce((s,e) => s + Math.max(0, (e.staffNeeded||0)-(e.staffHired||0)), 0), color: B.orange },
                   ].map(m => (
                     <div key={m.label} style={{ background: '#FBF7F6', borderRadius: 10, padding: '14px', textAlign: 'center', border: `1px solid ${B.border}` }}>
@@ -2276,6 +2308,300 @@ ${directorNotes.length > 0 ? 'DIRECTOR NOTES\n' + directorNotes.slice(0,3).map(n
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+
+        {/* ── REVENUE ─────────────────────────────────────────── */}
+        {activeTab === 'revenue' && (() => {
+          const avgRate = CFG.avgReimbursement;
+          const weeklyVisitRev = (csvData?.dedupedCount || manualVisits) * avgRate;
+          const revTarget = CFG.revenueTarget;
+          const revPct = Math.min(Math.round(weeklyVisitRev / revTarget * 100), 100);
+          const revGap = Math.max(0, revTarget - weeklyVisitRev);
+          const revStatus = revPct >= 100 ? 'green' : revPct >= 80 ? 'yellow' : 'red';
+          const statusColors = { green: B.green, yellow: B.yellow, red: B.danger };
+
+          // Auth risk revenue
+          const authRiskPatients = hasCensus ? ((censusData.counts.auth_pending||0) + (censusData.counts.active_auth_pending||0)) : 0;
+          const authRiskRev = authRiskPatients * CFG.authRiskVisitsPerWeek * avgRate;
+
+          // On hold paused revenue
+          const onHoldPatients = hasCensus ? ((censusData.counts.on_hold||0) + (censusData.counts.on_hold_facility||0) + (censusData.counts.on_hold_pt||0) + (censusData.counts.on_hold_md||0)) : 0;
+          const onHoldRev = onHoldPatients * CFG.authRiskVisitsPerWeek * avgRate;
+
+          // SOC pending potential
+          const socPending = hasCensus ? (censusData.counts.soc_pending||0) : 0;
+          const socPotential = socPending * CFG.authRiskVisitsPerWeek * avgRate;
+
+          // Waitlist potential
+          const waitlistPats = hasCensus ? (censusData.counts.waitlist||0) : 0;
+          const waitlistPotential = waitlistPats * CFG.authRiskVisitsPerWeek * avgRate;
+
+          // Payer mix
+          const payerCounts = hasCensus ? censusData.patients.reduce((acc, p) => {
+            const ins = (p.ins || 'unknown').toLowerCase();
+            const key = ins.includes('medicare') ? 'Medicare' : ins.includes('medicaid') ? 'Medicaid' : ins.includes('private') || ins === 'private' ? 'Private Pay' : 'Other';
+            acc[key] = (acc[key]||0) + 1; return acc;
+          }, {}) : {};
+          const totalPayers = Object.values(payerCounts).reduce((s,v)=>s+v,0);
+
+          const fmt = (n) => n >= 1000 ? `$${(n/1000).toFixed(1)}K` : `$${n}`;
+
+          return (
+            <div>
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>Revenue Dashboard</div>
+                <div style={{ fontSize: 13, color: B.gray }}>
+                  Based on {fmt(avgRate)} avg reimbursement per visit — update in ⚙️ Settings
+                </div>
+              </div>
+
+              {/* Revenue target banner */}
+              <div style={{ background: `linear-gradient(135deg, ${B.darkRed}, ${B.red}, ${B.orange})`, borderRadius: 18, padding: '24px 32px', marginBottom: 24, position: 'relative', overflow: 'hidden', boxShadow: '0 4px 16px rgba(139,26,16,0.2)' }}>
+                <div style={{ position: 'absolute', inset: 0, opacity: 0.06, backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap', position: 'relative' }}>
+                  <div style={{ flex: 1, minWidth: 250 }}>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>Estimated Weekly Revenue</div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+                      <span style={{ fontSize: 44, fontWeight: 800, color: '#fff', fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{fmt(weeklyVisitRev)}</span>
+                      <span style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}>/ {fmt(revTarget)} target</span>
+                    </div>
+                    <div style={{ marginTop: 12, height: 6, background: 'rgba(255,255,255,0.2)', borderRadius: 3 }}>
+                      <div style={{ height: '100%', width: `${revPct}%`, background: '#fff', borderRadius: 3, transition: 'width 0.5s ease' }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 6 }}>
+                      {revPct >= 100 ? '🎯 Revenue target reached' : `${fmt(revGap)} gap to ${fmt(revTarget)} weekly target`}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 20 }}>
+                    {[
+                      { label: 'Per Visit', value: fmt(avgRate) },
+                      { label: 'Visits', value: csvData?.dedupedCount || manualVisits },
+                      { label: 'Pace', value: `${revPct}%` },
+                    ].map((s, i) => (
+                      <div key={s.label} style={{ textAlign: 'center', paddingLeft: i > 0 ? 20 : 0, borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
+                        <div style={{ fontSize: 24, fontWeight: 800, color: '#fff', fontFamily: "'DM Mono', monospace" }}>{s.value}</div>
+                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 3 }}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Revenue cards row */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
+                {[
+                  { label: 'Est. Weekly Revenue', value: fmt(weeklyVisitRev), sub: `${csvData?.dedupedCount || manualVisits} visits × ${fmt(avgRate)}`, color: B.green, icon: '💰' },
+                  { label: 'Auth Risk Revenue', value: fmt(authRiskRev), sub: `${authRiskPatients} patients blocked`, color: B.yellow, icon: '🔒', alert: authRiskPatients > 10 ? 'High risk — action needed' : null },
+                  { label: 'On Hold Paused Rev', value: fmt(onHoldRev), sub: `${onHoldPatients} patients on hold`, color: '#6B7280', icon: '⏸️' },
+                  { label: 'SOC + Waitlist Pipeline', value: fmt(socPotential + waitlistPotential), sub: `${socPending + waitlistPats} patients ready to activate`, color: '#0284C7', icon: '📈' },
+                ].map(c => (
+                  <div key={c.label} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 14, padding: '18px 20px', position: 'relative', overflow: 'hidden', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${c.color}, transparent)` }} />
+                    <div style={{ fontSize: 11, color: B.lightGray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>{c.icon} {c.label}</div>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: c.color, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{c.value}</div>
+                    <div style={{ fontSize: 11, color: B.gray, marginTop: 6 }}>{c.sub}</div>
+                    {c.alert && <div style={{ fontSize: 11, color: B.danger, marginTop: 4, fontWeight: 600 }}>{c.alert}</div>}
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                {/* Revenue by region */}
+                <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '22px 24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: B.black, marginBottom: 16 }}>📊 Revenue by Region (Est.)</div>
+                  {csvData?.regionData ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {Object.entries(csvData.regionData).sort(([,a],[,b]) => b.scheduled - a.scheduled).map(([region, data]) => {
+                        const regionRev = data.scheduled * avgRate;
+                        const maxRev = Math.max(...Object.values(csvData.regionData).map(d => d.scheduled * avgRate));
+                        const pct = Math.round(regionRev / maxRev * 100);
+                        return (
+                          <div key={region}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: B.black }}>Region {region}</span>
+                              <div style={{ display: 'flex', gap: 12 }}>
+                                <span style={{ fontSize: 11, color: B.gray }}>{data.scheduled} visits</span>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: B.red, fontFamily: 'monospace' }}>{fmt(regionRev)}</span>
+                              </div>
+                            </div>
+                            <div style={{ height: 5, background: '#F5EDEB', borderRadius: 3 }}>
+                              <div style={{ height: '100%', width: `${pct}%`, borderRadius: 3, background: `linear-gradient(90deg, ${B.darkRed}, ${B.orange})`, transition: 'width 0.5s ease' }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '24px', color: B.lightGray, fontSize: 13 }}>Upload Pariox data to see regional revenue breakdown</div>
+                  )}
+                </div>
+
+                {/* Payer mix + revenue opportunity */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {/* Payer mix */}
+                  <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '22px 24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: B.black, marginBottom: 14 }}>🏥 Payer Mix</div>
+                    {Object.keys(payerCounts).length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {Object.entries(payerCounts).sort(([,a],[,b]) => b-a).map(([payer, count]) => {
+                          const pct = Math.round(count / totalPayers * 100);
+                          const payerColor = payer === 'Private Pay' ? B.red : payer === 'Medicare' ? '#1565C0' : payer === 'Medicaid' ? '#059669' : B.gray;
+                          return (
+                            <div key={payer}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                <span style={{ fontSize: 12, color: B.black }}>{payer}</span>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: payerColor, fontFamily: 'monospace' }}>{count} ({pct}%)</span>
+                              </div>
+                              <div style={{ height: 4, background: '#F5EDEB', borderRadius: 2 }}>
+                                <div style={{ height: '100%', width: `${pct}%`, borderRadius: 2, background: payerColor }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {payerCounts['Private Pay'] && (payerCounts['Private Pay']/totalPayers) > 0.9 && (
+                          <div style={{ marginTop: 8, padding: '8px 12px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: 11, color: '#92400E' }}>
+                            ⚠️ {Math.round(payerCounts['Private Pay']/totalPayers*100)}% private pay concentration — consider payer diversification
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: 'center', color: B.lightGray, fontSize: 13 }}>Upload census data to see payer mix</div>
+                    )}
+                  </div>
+
+                  {/* Revenue opportunity */}
+                  <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 16, padding: '20px 24px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: B.green, marginBottom: 12 }}>📈 Revenue Recovery Opportunity</div>
+                    {[
+                      { label: 'Resolve auth blocks', patients: authRiskPatients, color: B.yellow },
+                      { label: 'Activate SOC pending', patients: socPending, color: '#0284C7' },
+                      { label: 'Convert waitlist', patients: waitlistPats, color: '#7C3AED' },
+                      { label: 'Return on-hold patients', patients: onHoldPatients, color: '#6B7280' },
+                    ].map(r => (
+                      <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontSize: 12, color: B.black }}>{r.label}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: B.green, fontFamily: 'monospace' }}>+{fmt(r.patients * CFG.authRiskVisitsPerWeek * avgRate)}/wk</span>
+                      </div>
+                    ))}
+                    <div style={{ borderTop: `1px solid #BBF7D0`, paddingTop: 10, marginTop: 4, display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: B.green }}>Total potential uplift</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: B.green, fontFamily: 'monospace' }}>+{fmt((authRiskPatients + socPending + waitlistPats + onHoldPatients) * CFG.authRiskVisitsPerWeek * avgRate)}/wk</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── ADMIN SETTINGS ───────────────────────────────────── */}
+        {activeTab === '⚙️' && (() => {
+          const isUnlocked = adminUnlocked;
+          const draft = settingsDraft || CFG;
+
+          return (
+            <div style={{ maxWidth: 720, margin: '0 auto' }}>
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 4 }}>⚙️ Director Settings</div>
+                <div style={{ fontSize: 13, color: B.gray }}>Edit dashboard targets, rates, and thresholds — no code required</div>
+              </div>
+
+              {!isUnlocked ? (
+                <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '40px', textAlign: 'center', boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                  <div style={{ fontSize: 32, marginBottom: 12 }}>🔐</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: B.black, marginBottom: 6 }}>Director Access Required</div>
+                  <div style={{ fontSize: 13, color: B.gray, marginBottom: 24 }}>Enter your 4-digit PIN to edit settings</div>
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'center', alignItems: 'center' }}>
+                    <input
+                      type="password" maxLength={4} value={adminPinInput}
+                      onChange={e => { setAdminPinInput(e.target.value); setAdminPinError(false); }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          if (adminPinInput === CFG.adminPin) { setAdminUnlocked(true); setSettingsDraft({...CFG}); setAdminPinInput(''); }
+                          else { setAdminPinError(true); setAdminPinInput(''); }
+                        }
+                      }}
+                      placeholder="PIN"
+                      style={{ width: 100, padding: '12px', textAlign: 'center', fontSize: 20, letterSpacing: '0.3em', border: `2px solid ${adminPinError ? B.danger : B.border}`, borderRadius: 10, outline: 'none', fontFamily: "'DM Mono', monospace" }}
+                    />
+                    <button onClick={() => {
+                      if (adminPinInput === CFG.adminPin) { setAdminUnlocked(true); setSettingsDraft({...CFG}); setAdminPinInput(''); }
+                      else { setAdminPinError(true); setAdminPinInput(''); }
+                    }} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 10, color: '#fff', padding: '12px 20px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Unlock</button>
+                  </div>
+                  {adminPinError && <div style={{ color: B.danger, fontSize: 12, marginTop: 10 }}>Incorrect PIN — try again</div>}
+                  <div style={{ fontSize: 11, color: B.lightGray, marginTop: 16 }}>Default PIN: 1234 — change it in settings after unlocking</div>
+                </div>
+              ) : (
+                <div>
+                  {/* Settings form */}
+                  {[
+                    {
+                      section: '📅 Visit Targets',
+                      fields: [
+                        { key: 'visitTarget', label: 'Weekly Visit Target', sub: 'Sustainability threshold for the whole company', type: 'number', suffix: 'visits/wk' },
+                      ]
+                    },
+                    {
+                      section: '💰 Revenue Targets',
+                      fields: [
+                        { key: 'revenueTarget', label: 'Weekly Revenue Target', sub: 'Company weekly revenue goal', type: 'number', prefix: '$', suffix: '/week' },
+                        { key: 'avgReimbursement', label: 'Avg Reimbursement Per Visit', sub: 'Used to estimate all revenue figures', type: 'number', prefix: '$', suffix: '/visit' },
+                        { key: 'authRiskVisitsPerWeek', label: 'Avg Visits Per Patient Per Week', sub: 'Used for revenue risk calculations', type: 'number', suffix: 'visits/wk' },
+                      ]
+                    },
+                    {
+                      section: '👥 Census Targets',
+                      fields: [
+                        { key: 'activeCensusTarget', label: 'Active Census Target', sub: 'Goal for Active + Active-Auth Pending patients', type: 'number', suffix: 'patients' },
+                        { key: 'coordinatorCap', label: 'Coordinator Caseload Cap', sub: 'Max patients per care coordinator before flag', type: 'number', suffix: 'patients' },
+                      ]
+                    },
+                    {
+                      section: '🔐 Security',
+                      fields: [
+                        { key: 'adminPin', label: 'Director PIN', sub: 'Change your 4-digit settings PIN', type: 'text', maxLength: 4 },
+                      ]
+                    },
+                  ].map(section => (
+                    <div key={section.section} style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '22px 24px', marginBottom: 16, boxShadow: '0 1px 4px rgba(139,26,16,0.06)' }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: B.black, marginBottom: 16 }}>{section.section}</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        {section.fields.map(field => (
+                          <div key={field.key} style={{ display: 'grid', gridTemplateColumns: '1fr 200px', gap: 16, alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: B.black }}>{field.label}</div>
+                              <div style={{ fontSize: 11, color: B.gray, marginTop: 2 }}>{field.sub}</div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              {field.prefix && <span style={{ fontSize: 13, color: B.gray }}>{field.prefix}</span>}
+                              <input
+                                type={field.type}
+                                value={draft[field.key]}
+                                maxLength={field.maxLength}
+                                onChange={e => setSettingsDraft(prev => ({ ...prev, [field.key]: field.type === 'number' ? (parseFloat(e.target.value)||0) : e.target.value }))}
+                                style={{ flex: 1, padding: '10px 12px', border: `1.5px solid ${B.border}`, borderRadius: 8, fontSize: 14, fontFamily: "'DM Mono', monospace", fontWeight: 700, color: B.red, outline: 'none', textAlign: 'right' }}
+                              />
+                              {field.suffix && <span style={{ fontSize: 11, color: B.gray, whiteSpace: 'nowrap' }}>{field.suffix}</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Save / Cancel */}
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+                    <button onClick={() => { setAdminUnlocked(false); setSettingsDraft(null); }} style={{ background: 'none', border: `1px solid ${B.border}`, borderRadius: 10, color: B.gray, padding: '12px 20px', fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+                    <button onClick={() => { saveSettings(draft); setAdminUnlocked(false); setSettingsDraft(null); alert('Settings saved — dashboard updated.'); }} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 10, color: '#fff', padding: '12px 24px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', boxShadow: '0 2px 8px rgba(217,79,43,0.3)' }}>
+                      Save Settings
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
