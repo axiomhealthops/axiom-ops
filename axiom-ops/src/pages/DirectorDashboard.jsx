@@ -24,32 +24,61 @@ const VISIT_TARGET = 800;
 const COORD_COLORS = { 'Gypsy': B.red, 'Mary': B.green, 'Audrey': B.orange, 'April': B.darkRed };
 
 // ── CSV Parser ────────────────────────────────────────────────
+function parseCSVLine(line) {
+  const result = []; let current = ''; let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '"') { inQuotes = !inQuotes; }
+    else if (line[i] === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
+    else { current += line[i]; }
+  }
+  result.push(current.trim());
+  return result;
+}
+
 function parseParioxCSV(text) {
   const lines = text.trim().split('\n');
   if (lines.length < 2) return null;
-  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
+  const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+
+  // Detect Pariox column indexes — handles "Status (eForm)" naming
+  const statusIdx = headers.findIndex(h => h.includes('status'));
+  const dateIdx = headers.findIndex(h => h === 'date');
+  if (statusIdx === -1) return null;
+
   let completed = 0, missed = 0, scheduled = 0;
   const dailyMap = {};
+
   for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(',').map(c => c.trim().replace(/"/g, ''));
-    const row = {}; headers.forEach((h, idx) => { row[h] = cols[idx] || ''; });
-    const status = (row['status'] || row['visit status'] || row['visit_status'] || '').toLowerCase();
-    const date = row['date'] || row['visit date'] || row['service date'] || row['visitdate'] || '';
-    const count = parseInt(row['count'] || row['visits'] || row['total'] || '1') || 1;
-    scheduled += count;
-    const isComplete = status.includes('complet') || status.includes('kept') || status.includes('done');
-    const isMissed = status.includes('miss') || status.includes('cancel') || status.includes('no show');
-    if (isComplete) completed += count;
-    if (isMissed) missed += count;
-    if (date) {
-      const d = date.split('T')[0].split(' ')[0];
-      if (d) { if (!dailyMap[d]) dailyMap[d] = { completed: 0, scheduled: 0 }; dailyMap[d].scheduled += count; if (isComplete) dailyMap[d].completed += count; }
+    if (!lines[i].trim()) continue;
+    const cols = parseCSVLine(lines[i]);
+    const status = (cols[statusIdx] || '').toLowerCase().trim();
+    const dateRaw = (cols[dateIdx] || '').trim();
+    scheduled++;
+
+    // Pariox statuses: "Completed (Active)", "Completed (Submitted)", "Completed (Sent Back)", "Scheduled (Active)"
+    const isComplete = status.startsWith('completed');
+    const isMissed = status.includes('missed') || status.includes('no show') || status.includes('cancel');
+    if (isComplete) completed++;
+    if (isMissed) missed++;
+
+    // Parse MM/DD/YYYY from Pariox
+    const mmddyyyy = dateRaw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (mmddyyyy) {
+      const [, mm, dd, yyyy] = mmddyyyy;
+      const isoDate = `${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
+      if (!dailyMap[isoDate]) dailyMap[isoDate] = { completed: 0, scheduled: 0 };
+      dailyMap[isoDate].scheduled++;
+      if (isComplete) dailyMap[isoDate].completed++;
     }
   }
-  const dailyTrend = Object.entries(dailyMap).sort(([a], [b]) => a.localeCompare(b)).slice(-7).map(([date, data]) => ({
-    day: new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' }),
-    visits: data.completed, scheduled: data.scheduled, target: Math.round(VISIT_TARGET / 5)
-  }));
+
+  const dailyTrend = Object.entries(dailyMap)
+    .sort(([a], [b]) => a.localeCompare(b)).slice(-7)
+    .map(([date, data]) => ({
+      day: new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' }),
+      visits: data.completed, scheduled: data.scheduled, target: Math.round(VISIT_TARGET / 5)
+    }));
+
   return { completedVisits: completed, missedVisits: missed, scheduledVisits: scheduled, dailyTrend, rowCount: lines.length - 1 };
 }
 
@@ -133,43 +162,117 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
   const [dragging, setDragging] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
+  const [lastFile, setLastFile] = useState('');
   const fileRef = useRef();
+
+  useEffect(() => {
+    // Load SheetJS for Excel support
+    if (!window.XLSX) {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      document.head.appendChild(script);
+    }
+  }, []);
+
+  function processRows(rows, statusIdx, dateIdx) {
+    let completed = 0, missed = 0, scheduled = 0;
+    const dailyMap = {};
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i]; if (!row || !row.length) continue;
+      const status = String(row[statusIdx] || '').toLowerCase().trim();
+      const dateRaw = row[dateIdx];
+      scheduled++;
+      const isComplete = status.startsWith('completed');
+      const isMissed = status.includes('missed') || status.includes('no show') || status.includes('cancel');
+      if (isComplete) completed++;
+      if (isMissed) missed++;
+      let isoDate = '';
+      if (dateRaw instanceof Date) { isoDate = dateRaw.toISOString().split('T')[0]; }
+      else if (typeof dateRaw === 'number') { const d = new Date((dateRaw - 25569) * 86400 * 1000); isoDate = d.toISOString().split('T')[0]; }
+      else if (typeof dateRaw === 'string') { const m = dateRaw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (m) isoDate = `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`; }
+      if (isoDate) {
+        if (!dailyMap[isoDate]) dailyMap[isoDate] = { completed: 0, scheduled: 0 };
+        dailyMap[isoDate].scheduled++;
+        if (isComplete) dailyMap[isoDate].completed++;
+      }
+    }
+    const dailyTrend = Object.entries(dailyMap).sort(([a],[b]) => a.localeCompare(b)).slice(-7).map(([date, data]) => ({
+      day: new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' }),
+      visits: data.completed, scheduled: data.scheduled, target: Math.round(VISIT_TARGET / 5)
+    }));
+    return { completedVisits: completed, missedVisits: missed, scheduledVisits: scheduled, dailyTrend, rowCount: rows.length - 1 };
+  }
 
   function handleFile(file) {
     if (!file) return;
     if (!file.name.match(/\.(csv|xlsx|xls)$/i)) { setError('Please upload a CSV or Excel file from Pariox'); return; }
     setProcessing(true); setError('');
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const result = parseParioxCSV(e.target.result);
-        if (!result) { setError('Could not parse this file. Make sure it is a Pariox CSV export.'); setProcessing(false); return; }
-        onDataLoaded(result); setProcessing(false);
-      } catch (err) { setError('Error: ' + err.message); setProcessing(false); }
-    };
-    reader.readAsText(file);
+    const isXLSX = file.name.match(/\.xlsx?$/i);
+
+    if (isXLSX) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const XLSX = window.XLSX;
+          if (!XLSX) { setError('Excel parser still loading — please try again in a moment.'); setProcessing(false); return; }
+          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'mm/dd/yyyy' });
+          const headers = (rows[0] || []).map(h => String(h || '').toLowerCase().trim());
+          const statusIdx = headers.findIndex(h => h.includes('status'));
+          const dateIdx = headers.findIndex(h => h === 'date');
+          if (statusIdx === -1) { setError('Could not find Status column. Make sure this is a Pariox export.'); setProcessing(false); return; }
+          const result = processRows(rows, statusIdx, dateIdx);
+          setLastFile(file.name);
+          onDataLoaded(result);
+          setProcessing(false);
+        } catch (err) { setError('Error reading Excel: ' + err.message); setProcessing(false); }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const result = parseParioxCSV(e.target.result);
+          if (!result) { setError('Could not parse this file.'); setProcessing(false); return; }
+          setLastFile(file.name);
+          onDataLoaded(result);
+          setProcessing(false);
+        } catch (err) { setError('Error: ' + err.message); setProcessing(false); }
+      };
+      reader.readAsText(file);
+    }
   }
+
+  function handleInputChange(e) { handleFile(e.target.files[0]); e.target.value = ''; }
 
   return (
     <div style={{ background: B.cardBg, border: `1px solid ${B.border}`, borderRadius: 16, padding: '24px', boxShadow: '0 1px 4px rgba(139,26,16,0.06)', marginBottom: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 700, color: B.black, marginBottom: 3 }}>📊 Pariox Visit Data Import</div>
-          <div style={{ fontSize: 12, color: B.gray }}>Upload your weekly CSV/Excel export from Pariox to update visit counts and charts</div>
+          <div style={{ fontSize: 12, color: B.gray }}>Upload CSV or XLSX from Pariox — each upload fully replaces previous data</div>
         </div>
-        {csvData && <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '6px 12px', fontSize: 11, color: B.green, fontWeight: 600 }}>✓ {csvData.rowCount} records loaded</div>}
+        {csvData && (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '6px 12px', fontSize: 11, color: B.green, fontWeight: 600 }}>✓ {csvData.rowCount} records loaded</div>
+            {lastFile && <div style={{ fontSize: 10, color: B.lightGray, marginTop: 4 }}>{lastFile}</div>}
+          </div>
+        )}
       </div>
       <div
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
         onClick={() => fileRef.current.click()}
-        style={{ border: `2px dashed ${dragging ? B.red : '#E8D5D0'}`, borderRadius: 12, padding: '32px 20px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s', background: dragging ? '#FFF5F2' : '#FDFAF9' }}
+        style={{ border: `2px dashed ${dragging ? B.red : '#E8D5D0'}`, borderRadius: 12, padding: '28px 20px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s', background: dragging ? '#FFF5F2' : '#FDFAF9' }}
       >
-        <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
-        <div style={{ fontSize: 32, marginBottom: 8 }}>📁</div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: B.black, marginBottom: 4 }}>{processing ? 'Processing...' : 'Drop your Pariox export here'}</div>
-        <div style={{ fontSize: 11, color: B.lightGray }}>or click to browse — CSV, XLS, XLSX accepted</div>
+        <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={handleInputChange} />
+        <div style={{ fontSize: 28, marginBottom: 8 }}>{processing ? '⏳' : csvData ? '🔄' : '📁'}</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: B.black, marginBottom: 4 }}>
+          {processing ? 'Processing...' : csvData ? 'Upload new file to override current data' : 'Drop your Pariox export here'}
+        </div>
+        <div style={{ fontSize: 11, color: B.lightGray }}>CSV or XLSX accepted — each upload replaces all previous data</div>
       </div>
       {error && <div style={{ marginTop: 10, padding: '8px 12px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, fontSize: 12, color: B.danger }}>{error}</div>}
       {csvData && (
@@ -190,6 +293,7 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
     </div>
   );
 }
+
 
 function GoogleDriveLinkPanel({ driveLinks, onAddLink, onRemoveLink }) {
   const [newLink, setNewLink] = useState({ label: '', url: '' });
