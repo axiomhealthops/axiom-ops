@@ -3,6 +3,9 @@ import { useAuth } from '../hooks/useAuth';
 import Sidebar from '../components/Sidebar';
 import UserManagement from './UserManagement';
 import DirectorDashboard from './DirectorDashboard';
+import LiveAlerts from './LiveAlerts';
+import PatientCensus from './PatientCensus';
+import VisitSchedule from './VisitSchedule';
 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10',
@@ -12,9 +15,6 @@ const B = {
 
 const PAGE_TO_TAB = {
   overview:   'overview',
-  alerts:     'overview',
-  census:     'overview',
-  visits:     'overview',
   revenue:    'revenue',
   growth:     'growth',
   scorecard:  'scorecard',
@@ -30,6 +30,9 @@ const PAGE_TO_TAB = {
   data:       'data',
   settings:   '⚙️',
 };
+
+// Pages handled by DirectorDashboard
+const DD_PAGES = new Set(Object.keys(PAGE_TO_TAB));
 
 const PAGE_TITLES = {
   overview:'Command Center', alerts:'Live Alerts', census:'Patient Census',
@@ -57,19 +60,34 @@ function Clock() {
 }
 
 export default function Dashboard() {
-  const { isSuperAdmin, role } = useAuth();
+  const { isSuperAdmin } = useAuth();
   const [currentPage, setCurrentPage] = useState('overview');
+
+  // Shared data state — loaded once, passed to all pages that need it
+  const [csvData, setCsvData]       = useState(() => { try { const s=localStorage.getItem('axiom_pariox_data'); return s?JSON.parse(s):null; } catch{return null;} });
+  const [censusData, setCensusData] = useState(() => { try { const s=localStorage.getItem('axiom_census'); return s?JSON.parse(s):null; } catch{return null;} });
+  const [settings]                  = useState(() => { try { const s=localStorage.getItem('axiom_settings'); return s?JSON.parse(s):null; } catch{return null;} });
+
+  const hasPariox = !!(csvData && csvData.scheduledVisits > 0);
+  const hasCensus = !!(censusData && censusData.counts);
+  const CFG = settings || { visitTarget:800, revenueTarget:200000, avgReimbursement:90, activeCensusTarget:500, authRiskVisitsPerWeek:3 };
 
   const tab = PAGE_TO_TAB[currentPage] || 'overview';
   const title = PAGE_TITLES[currentPage] || 'AxiomHealth';
+  const isStandalonePage = ['alerts','census','visits','users'].includes(currentPage);
 
-  const handleNavigate = (page) => {
-    setCurrentPage(page);
+  const renderContent = () => {
+    if (currentPage === 'users' && isSuperAdmin) return <UserManagement />;
+    if (currentPage === 'alerts')  return <LiveAlerts  censusData={censusData} csvData={csvData} hasCensus={hasCensus} hasPariox={hasPariox} CFG={CFG} />;
+    if (currentPage === 'census')  return <PatientCensus censusData={censusData} hasCensus={hasCensus} CFG={CFG} />;
+    if (currentPage === 'visits')  return <VisitSchedule csvData={csvData} hasPariox={hasPariox} />;
+    // All other pages → DirectorDashboard with the right tab
+    return <DirectorDashboard key={tab} initialTab={tab} />;
   };
 
   return (
     <div style={{ display:'flex', minHeight:'100vh', background:B.bg, fontFamily:"'DM Sans', sans-serif" }}>
-      <Sidebar activePage={currentPage} onNavigate={handleNavigate} />
+      <Sidebar activePage={currentPage} onNavigate={setCurrentPage} />
 
       <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0 }}>
         {/* Top bar */}
@@ -79,7 +97,7 @@ export default function Dashboard() {
           <div style={{ fontSize:15, fontWeight:700, color:B.black }}>{title}</div>
           <div style={{ display:'flex', gap:12, alignItems:'center' }}>
             <Clock />
-            <button onClick={() => handleNavigate('data')}
+            <button onClick={() => setCurrentPage('data')}
               style={{ background:`linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border:'none',
                 borderRadius:8, color:'#fff', padding:'7px 14px', fontSize:12, fontWeight:700,
                 cursor:'pointer', fontFamily:'inherit' }}>
@@ -90,10 +108,7 @@ export default function Dashboard() {
 
         {/* Content */}
         <div style={{ flex:1, padding:'24px 28px', overflowY:'auto' }}>
-          {currentPage === 'users' && isSuperAdmin
-            ? <UserManagement />
-            : <DirectorDashboard key={tab} initialTab={tab} />
-          }
+          {renderContent()}
         </div>
       </div>
     </div>
