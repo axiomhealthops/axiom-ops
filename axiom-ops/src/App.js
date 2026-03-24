@@ -1,11 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
-import Login         from './pages/Login';
-import Dashboard     from './pages/Dashboard';
-import CoordinatorApp from './pages/CoordinatorApp';
+import Login              from './pages/Login';
+import Dashboard          from './pages/Dashboard';
+import ExecutiveDashboard from './pages/ExecutiveDashboard';
+import CoordinatorApp     from './pages/CoordinatorApp';
 
-function ProtectedRoute({ children, allowed }) {
-  const { user, profile, loading } = useAuth();
+function ProtectedRoute({ children }) {
+  const { user, loading } = useAuth();
   if (loading) return (
     <div style={{ minHeight:'100vh', background:'#0F1117', display:'flex', alignItems:'center',
       justifyContent:'center', color:'rgba(255,255,255,0.4)', fontFamily:'DM Sans,sans-serif', fontSize:14 }}>
@@ -13,7 +14,6 @@ function ProtectedRoute({ children, allowed }) {
     </div>
   );
   if (!user) return <Navigate to="/login" replace />;
-  if (allowed && profile && !allowed.includes(profile.role)) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -22,20 +22,26 @@ function AppRoutes() {
   if (loading) return null;
 
   const role = profile?.role || 'coordinator';
-  const isDashboardUser = ['super_admin','ceo','director','regional_mgr','admin'].includes(role);
+
+  const renderApp = () => {
+    switch(role) {
+      case 'super_admin':
+      case 'director':
+      case 'regional_mgr':
+      case 'admin':
+        return <Dashboard />;
+      case 'ceo':
+        return <ExecutiveDashboard />;
+      case 'coordinator':
+      default:
+        return <CoordinatorApp />;
+    }
+  };
 
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-
-      {/* Main app â€” role determines what they see */}
-      <Route path="/*" element={
-        <ProtectedRoute>
-          {isDashboardUser ? <Dashboard /> : <CoordinatorApp />}
-        </ProtectedRoute>
-      } />
-
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="/*" element={<ProtectedRoute>{renderApp()}</ProtectedRoute>} />
     </Routes>
   );
 }
