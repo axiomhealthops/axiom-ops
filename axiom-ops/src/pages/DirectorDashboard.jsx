@@ -897,7 +897,7 @@ export default function DirectorDashboard() {
   const removeDriveLink = id => { const u = driveLinks.filter(l => l.id !== id); setDriveLinks(u); localStorage.setItem('axiom_drive_links', JSON.stringify(u)); };
   const handleCSV = data => {
     setCsvData(data);
-    if (data.completedVisits > 0) setManualVisits(data.completedVisits);
+    // Don't override manualVisits from Pariox — displayVisits handles Pariox automatically
     if (data.staffList?.length > 0) syncStaffFromPariox(data);
     try { localStorage.setItem('axiom_pariox_data', JSON.stringify(data)); } catch(e) {}
 
@@ -977,8 +977,10 @@ export default function DirectorDashboard() {
     activeCensusTarget: 500, coordinatorCap: 80, authRiskVisitsPerWeek: 3, adminPin: '1234'
   };
 
-  const visitPct = Math.min(Math.round((manualVisits / CFG.visitTarget) * 100), 100);
-  const visitGap = CFG.visitTarget - manualVisits;
+  // displayVisits: prefer Pariox deduped count when available, fall back to manual
+  const displayVisits = hasPariox ? (csvData.dedupedCount || csvData.scheduledVisits || manualVisits) : manualVisits;
+  const visitPct = Math.min(Math.round((displayVisits / CFG.visitTarget) * 100), 100);
+  const visitGap = CFG.visitTarget - displayVisits;
   const trendData = csvData?.dailyTrend?.length > 0 ? csvData.dailyTrend : weeklyData;
   const tabs = ['overview', 'revenue', 'growth', 'scorecard', 'expansion', 'staff', 'regions', 'team', 'trends', 'reports', 'data', '⚙️'];
 
@@ -1008,7 +1010,7 @@ export default function DirectorDashboard() {
       monthLabel,
       weekNum: Math.ceil((new Date() - new Date(new Date().getFullYear(),0,1)) / (7*24*60*60*1000)),
       // Visit metrics
-      scheduledVisits: csvData?.dedupedCount || manualVisits,
+      scheduledVisits: displayVisits,
       completedVisits: csvData?.completedVisits || 0,
       missedVisits: csvData?.missedVisits || 0,
       // Census metrics
@@ -1024,7 +1026,7 @@ export default function DirectorDashboard() {
       hospitalized: hasCensus ? (censusData.counts.hospitalized||0) : null,
       discharge: hasCensus ? (censusData.counts.discharge||0) : null,
       // Revenue estimate
-      estRevenue: (csvData?.dedupedCount || manualVisits) * CFG.avgReimbursement,
+      estRevenue: displayVisits * CFG.avgReimbursement,
       notes: snapshotNotes,
     };
     const updated = [...weeklySnapshots.filter(s => s.weekLabel !== weekLabel), snap]
@@ -1090,7 +1092,7 @@ export default function DirectorDashboard() {
             {(() => {
               const weekStart = (() => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); })();
               const weekEnd = (() => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 5); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); })();
-              const scheduledThisWeek = hasPariox ? (csvData.dedupedCount || csvData.scheduledVisits || 0) : 0;
+              const scheduledThisWeek = displayVisits;
               const completedThisWeek = hasPariox ? (csvData.completedVisits || 0) : totalCompleted;
               const paceColor = scheduledThisWeek >= CFG.visitTarget ? B.green : scheduledThisWeek >= CFG.visitTarget * 0.8 ? B.yellow : B.red;
               const completionPct = scheduledThisWeek > 0 ? Math.round(completedThisWeek / scheduledThisWeek * 100) : 0;
@@ -1172,8 +1174,9 @@ export default function DirectorDashboard() {
                   Weekly Visit Target {hasPariox && <span style={{ color: B.green, fontWeight: 700 }}>· {dataSource}</span>}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
-                  <input className="visits-input" type="number" value={manualVisits} onChange={e => { const v = parseInt(e.target.value) || 0; setManualVisits(v); try { localStorage.setItem('axiom_manual_visits', v); } catch(e) {} }} />
+                  <div style={{ fontSize: 36, fontWeight: 800, color: B.red, fontFamily: "'DM Mono', monospace" }}>{displayVisits}</div>
                   <span style={{ fontSize: 16, color: B.lightGray }}>/ {CFG.visitTarget} visits/wk</span>
+                  {!hasPariox && <span style={{ fontSize: 11, color: B.lightGray }}>· <button onClick={() => {}} style={{background:'none',border:'none',color:B.red,cursor:'pointer',fontSize:11,padding:0,textDecoration:'underline'}} onClick={e=>{const v=parseInt(prompt('Manual visit count:',manualVisits)||manualVisits);if(v){setManualVisits(v);try{localStorage.setItem('axiom_manual_visits',v)}catch(e){}}}}>edit manually</button></span>}
                 </div>
                 <div style={{ height: 8, background: '#F5EDEB', borderRadius: 4 }}>
                   <div style={{ height: '100%', width: `${visitPct}%`, borderRadius: 4, background: visitPct >= 100 ? B.green : `linear-gradient(90deg, ${B.darkRed}, ${B.red}, ${B.orange})`, transition: 'width 0.5s ease', boxShadow: '0 0 8px rgba(217,79,43,0.3)' }} />
@@ -1343,7 +1346,7 @@ export default function DirectorDashboard() {
               <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: B.lightGray, marginBottom: 14 }}>Live Alerts</div>
               {coordinators.filter(c => !morningReports.find(r => r.coordinator_id === c.id)).map(c => <AlertItem key={c.id} text={`${c.name} — Morning report not submitted`} severity="critical" />)}
               {totalAuthsExpiring > 3 && <AlertItem text={`${totalAuthsExpiring} authorizations expiring within 7 days — action required today`} severity="critical" />}
-              {visitGap > 100 && <AlertItem text={`Weekly visit pace is ${visitGap} below the 800-visit sustainability threshold`} severity="warning" />}
+              {visitGap > 100 && <AlertItem text={`Weekly visit pace is ${visitGap} below the ${CFG.visitTarget}-visit sustainability threshold`} severity="warning" />}
               {totalMissed > 5 && <AlertItem text={`${totalMissed} missed visits today — verify same-day reschedule documentation`} severity="warning" />}
               {reportsIn === coordinators.length && totalAuthsExpiring <= 3 && totalMissed <= 5 && visitGap <= 100 && coordinators.length > 0 && <AlertItem text="No critical alerts — team is operating within thresholds" severity="info" />}
             </div>
@@ -1356,7 +1359,7 @@ export default function DirectorDashboard() {
         {/* ── REVENUE ─────────────────────────────────────────── */}
         {activeTab === 'revenue' && (() => {
           const avgRate = CFG.avgReimbursement;
-          const weeklyVisitRev = (csvData?.dedupedCount || manualVisits) * avgRate;
+          const weeklyVisitRev = displayVisits * avgRate;
           const revTarget = CFG.revenueTarget;
           const revPct = Math.min(Math.round(weeklyVisitRev / revTarget * 100), 100);
           const revGap = Math.max(0, revTarget - weeklyVisitRev);
@@ -1417,7 +1420,7 @@ export default function DirectorDashboard() {
                   <div style={{ display: 'flex', gap: 20 }}>
                     {[
                       { label: 'Per Visit', value: fmt(avgRate) },
-                      { label: 'Visits', value: csvData?.dedupedCount || manualVisits },
+                      { label: 'Visits', value: displayVisits },
                       { label: 'Pace', value: `${revPct}%` },
                     ].map((s, i) => (
                       <div key={s.label} style={{ textAlign: 'center', paddingLeft: i > 0 ? 20 : 0, borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
@@ -1432,7 +1435,7 @@ export default function DirectorDashboard() {
               {/* 4 cards */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
                 {[
-                  { label: 'Est. Weekly Revenue', value: fmt(weeklyVisitRev), sub: `${csvData?.dedupedCount || manualVisits} visits × ${fmt(avgRate)}`, color: B.green, icon: '💰' },
+                  { label: 'Est. Weekly Revenue', value: fmt(weeklyVisitRev), sub: `${displayVisits} visits × ${fmt(avgRate)}`, color: B.green, icon: '💰' },
                   { label: 'Auth Risk Revenue', value: fmt(authRiskRev), sub: `${authRiskPatients} patients blocked`, color: B.yellow, icon: '🔒', alert: authRiskPatients > 10 ? 'High risk — action needed' : null },
                   { label: 'On Hold Paused Rev', value: fmt(onHoldRev), sub: `${onHoldPatients} patients on hold`, color: '#6B7280', icon: '⏸️' },
                   { label: 'SOC + Waitlist Pipeline', value: fmt(socPotential + waitlistPotential), sub: `${socPending + waitlistPats} patients ready to activate`, color: '#0284C7', icon: '📈' },
@@ -1918,7 +1921,7 @@ export default function DirectorDashboard() {
         {activeTab === 'scorecard' && (() => {
           const hasCensusVal = hasCensus ? censusData.activeCensus : (totalPatients || 0);
           const kpis = [
-            { label: 'Weekly Visits', value: manualVisits, target: CFG.visitTarget, pct: Math.round(manualVisits/CFG.visitTarget*100), status: manualVisits >= CFG.visitTarget ? 'green' : manualVisits >= CFG.visitTarget*0.8 ? 'yellow' : 'red', sub: `${CFG.visitTarget - manualVisits > 0 ? (CFG.visitTarget - manualVisits) + ' below target' : 'Target met ✓'}` },
+            { label: 'Weekly Visits', value: displayVisits, target: CFG.visitTarget, pct: Math.round(displayVisits/CFG.visitTarget*100), status: displayVisits >= CFG.visitTarget ? 'green' : displayVisits >= CFG.visitTarget*0.8 ? 'yellow' : 'red', sub: `${CFG.visitTarget - displayVisits > 0 ? (CFG.visitTarget - displayVisits) + ' below target' : 'Target met ✓'}` },
             { label: 'Active Census', value: hasCensusVal, target: `${CFG.activeCensusTarget}+`, pct: Math.min(Math.round(hasCensusVal/CFG.activeCensusTarget*100),100), status: hasCensusVal >= CFG.activeCensusTarget ? 'green' : hasCensusVal >= CFG.activeCensusTarget*0.8 ? 'yellow' : 'red', sub: `${CFG.activeCensusTarget - hasCensusVal > 0 ? (CFG.activeCensusTarget - hasCensusVal) + ' below target' : 'Target met ✓'}` },
             { label: 'Visit Completion Rate', value: `${csvData?.completedVisits > 0 ? Math.round(csvData.completedVisits/(csvData.dedupedCount||1)*100) : 0}%`, target: '90%+', pct: csvData?.completedVisits > 0 ? Math.min(Math.round(csvData.completedVisits/(csvData.dedupedCount||1)*100/90*100),100) : 0, status: (csvData?.completedVisits||0)/(csvData?.dedupedCount||1) >= 0.9 ? 'green' : (csvData?.completedVisits||0)/(csvData?.dedupedCount||1) >= 0.7 ? 'yellow' : 'red', sub: `${csvData?.completedVisits||0} of ${csvData?.dedupedCount||0} completed` },
             { label: 'Auth Expiry Risk', value: totalAuthsExpiring, target: '0', pct: totalAuthsExpiring === 0 ? 100 : 0, status: totalAuthsExpiring === 0 ? 'green' : totalAuthsExpiring <= 3 ? 'yellow' : 'red', sub: 'Auths expiring in 7 days' },
@@ -1934,7 +1937,7 @@ Week of ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year
 Prepared by: Director of Operations
 
 OPERATIONAL SUMMARY
-• Weekly Visits: ${manualVisits} / ${CFG.visitTarget} target (${Math.round(manualVisits/CFG.visitTarget*100)}%)
+• Weekly Visits: ${displayVisits} / ${CFG.visitTarget} target (${Math.round(displayVisits/CFG.visitTarget*100)}%)
 • Active Census: ${hasCensusVal} / ${CFG.activeCensusTarget} target
 • Visit Completion Rate: ${csvData?.completedVisits > 0 ? Math.round(csvData.completedVisits/(csvData.dedupedCount||1)*100) : 0}%
 • Morning Reports Submitted: ${reportsIn}/4
