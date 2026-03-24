@@ -383,10 +383,6 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
       totalVisits: s.totalVisits,
       uniquePatients: s.uniquePatients.size,
     }));
-    const xlsxStaffStats = {};
-    for (const [name, data] of Object.entries(xlsxStaffMap)) {
-      xlsxStaffStats[name] = { name: data.name, discipline: data.discipline, totalVisits: data.totalVisits, completedVisits: data.completedVisits || 0, uniquePatients: data.uniquePatients?.size || data.uniquePatients || 0, regions: Array.from(data.regions || []) };
-    }
     return { completedVisits: xDedupedComp, missedVisits: missed, scheduledVisits: xDedupedSched, rawScheduled: scheduled, rawCompleted: completed, dailyTrend, rowCount: rows.length - 1, regionData, uniquePatients: xlsxPatientSet.size, staffList: xlsxStaffList, staffStats: xlsxStaffStats, dedupedCount: xDedupedSched, rawCount: scheduled };
   }
 
