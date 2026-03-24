@@ -3,11 +3,11 @@ import { useAuth } from '../hooks/useAuth';
 import Sidebar from '../components/Sidebar';
 import UserManagement from './UserManagement';
 import DirectorDashboard from './DirectorDashboard';
-import ExecutiveDashboard from './ExecutiveDashboard';
 import CoordinatorApp from './CoordinatorApp';
 import LiveAlerts from './LiveAlerts';
 import PatientCensus from './PatientCensus';
 import VisitSchedule from './VisitSchedule';
+import ExecutiveReport from './ExecutiveReport';
 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10',
@@ -34,11 +34,10 @@ const PAGE_TITLES = {
 };
 
 const ROLE_VIEWS = [
-  { role:'super_admin', label:'Super Admin', icon:'🔑', color:'#D94F2B' },
-  { role:'director',    label:'Director',    icon:'📊', color:'#1565C0' },
-  { role:'ceo',         label:'CEO View',    icon:'👔', color:'#7C3AED' },
-  { role:'regional_mgr',label:'Reg. Manager',icon:'🗺️', color:'#059669' },
-  { role:'coordinator', label:'Coordinator', icon:'📋', color:'#D97706' },
+  { role:'super_admin', label:'My View',      icon:'🔑', color:'#D94F2B' },
+  { role:'director',    label:'Director',     icon:'📊', color:'#1565C0' },
+  { role:'regional_mgr',label:'Reg. Manager', icon:'🗺️', color:'#059669' },
+  { role:'coordinator', label:'Coordinator',  icon:'📋', color:'#D97706' },
 ];
 
 function Clock() {
@@ -79,7 +78,6 @@ export default function Dashboard() {
 
   const renderContent = () => {
     // ── Role preview ──────────────────────────────────────────
-    if (previewRole === 'ceo')         return <ExecutiveDashboard previewMode />;
     if (previewRole === 'coordinator') return <CoordinatorApp previewMode />;
     if (previewRole === 'regional_mgr') return <DirectorDashboard key="regional" initialTab="regions" />;
     if (previewRole === 'director')    return <DirectorDashboard key="director" initialTab="overview" />;
@@ -89,7 +87,7 @@ export default function Dashboard() {
     if (currentPage === 'alerts')  return <LiveAlerts  censusData={censusData} csvData={csvData} hasCensus={hasCensus} hasPariox={hasPariox} CFG={CFG} />;
     if (currentPage === 'census')  return <PatientCensus censusData={censusData} hasCensus={hasCensus} CFG={CFG} />;
     if (currentPage === 'visits')  return <VisitSchedule csvData={csvData} hasPariox={hasPariox} />;
-    if (currentPage === 'executive') return <ExecutiveDashboard previewMode />;
+    if (currentPage === 'executive') return <ExecutiveReport csvData={csvData} censusData={censusData} hasPariox={hasPariox} hasCensus={hasCensus} CFG={CFG} />;
     return <DirectorDashboard key={tab} initialTab={tab} />;
   };
 
