@@ -680,13 +680,15 @@ function GoogleDriveLinkPanel({ driveLinks, onAddLink, onRemoveLink }) {
 }
 
 // ── Main ──────────────────────────────────────────────────────
-export default function DirectorDashboard() {
+export default function DirectorDashboard({ initialTab = 'overview', readOnly = false }) {
   const { signOut } = useAuth();
   const [coordinators, setCoordinators] = useState([]);
   const [morningReports, setMorningReports] = useState([]);
   const [eodReports, setEodReports] = useState([]);
   const [weeklyData, setWeeklyData] = useState([]);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(initialTab);
+  // Keep tab in sync with sidebar navigation
+  useEffect(() => { setActiveTab(initialTab); }, [initialTab]);
   const [loading, setLoading] = useState(true);
   const [time, setTime] = useState(new Date());
   const [manualVisits, setManualVisits] = useState(() => { try { return parseInt(localStorage.getItem('axiom_manual_visits') || '650'); } catch { return 650; } });
@@ -749,6 +751,7 @@ export default function DirectorDashboard() {
     const insIdx2     = headers2.findIndex(h => h === 'insurance');
     const socIdx2     = headers2.findIndex(h => h === 'soc');
     const refIdx2     = headers2.findIndex(h => h === 'ref source');
+    const changedIdx2 = headers2.findIndex(h => h === 'changed');
     const changedIdx2 = headers2.findIndex(h => h === 'changed');
 
     if (statusIdx2 === -1) return null;
@@ -814,10 +817,12 @@ export default function DirectorDashboard() {
         byRegion[region].total++;
         byRegion[region][statusKey] = (byRegion[region][statusKey] || 0) + 1;
         if (ACTIVE_STATUSES.has(statusKey)) byRegion[region].activeCensus++;
-        byRegion[region].patients.push({ name: patient, status: statusKey, rawStatus, disc, ins, soc, ref });
+        byRegion[region].patients.push({ name: patient, status: statusKey, rawStatus, disc, ins, soc, ref, daysInStatus: daysInStatus });
       }
 
-      patients.push({ name: patient, status: statusKey, rawStatus, region, disc, ins, soc, ref });
+      const changed = changedIdx2 >= 0 ? cols[changedIdx2] : '';
+      const daysInStatus = changed ? Math.floor((new Date() - new Date(changed)) / 86400000) : null;
+      patients.push({ name: patient, status: statusKey, rawStatus, region, disc, ins, soc, ref, changed, daysInStatus });
     }
 
     const activeCensus = counts.active + counts.active_auth_pending;
@@ -1090,35 +1095,9 @@ export default function DirectorDashboard() {
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500;700&display=swap'); * { box-sizing: border-box; } ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: #E8D5D0; border-radius: 2px; } .tab-btn { background: none; border: none; cursor: pointer; transition: all 0.15s; font-family: 'DM Sans', sans-serif; } .visits-input { background: #FFF5F2; border: 1.5px solid #FDDDD5; border-radius: 8px; color: ${B.red}; padding: 4px 10px; font-family: 'DM Mono', monospace; font-size: 28px; font-weight: 800; width: 110px; text-align: center; outline: none; }`}</style>
 
       {/* Header */}
-      <div style={{ background: B.cardBg, borderBottom: `1px solid ${B.border}`, padding: '12px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100, boxShadow: '0 1px 6px rgba(139,26,16,0.08)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <img src="/logo.png" alt="AxiomHealth" style={{ height: 32, objectFit: 'contain' }}
-              onError={e => { e.target.style.display='none'; }}
-            />
-            <span style={{ fontSize: 15, fontWeight: 800, color: B.darkRed, letterSpacing: '-0.3px' }}>AxiomHealth</span>
-          </div>
+       {/* Header handled by Dashboard.jsx shell — DirectorDashboard renders content only */}
 
-        <div style={{ display: 'flex', gap: 4 }}>
-          {tabs.map(tab => (
-            <button key={tab} className="tab-btn" onClick={() => setActiveTab(tab)} style={{
-              padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-              color: activeTab === tab ? '#fff' : B.gray,
-              background: activeTab === tab ? `linear-gradient(135deg, ${B.red}, ${B.darkRed})` : 'transparent',
-              border: activeTab === tab ? 'none' : `1px solid ${B.border}`,
-              boxShadow: activeTab === tab ? '0 2px 8px rgba(217,79,43,0.3)' : 'none'
-            }}>
-              {tab === 'data' ? '📊 Data' : tab === '⚙️' ? '⚙️' : tab === 'recovery' ? '⏸️ Recovery' : tab === 'auths' ? '🔒 Auths' : tab === 'growth' ? '📈 Growth' : tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'DM Mono', monospace", color: B.red }}>{time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
-            <div style={{ fontSize: 10, color: B.lightGray }}>{time.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
-          </div>
-           <button onClick={() => window.open('/report', '_blank')} style={{ background: `linear-gradient(135deg, ${B.red}, ${B.darkRed})`, border: 'none', borderRadius: 8, color: '#fff', padding: '6px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>👥 Care Coordination</button>
-           <button onClick={signOut} style={{ background: '#FBF7F6', border: `1px solid ${B.border}`, borderRadius: 8, color: B.gray, padding: '7px 12px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Sign out</button>
+                      <button onClick={signOut} style={{ background: '#FBF7F6', border: `1px solid ${B.border}`, borderRadius: 8, color: B.gray, padding: '7px 12px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Sign out</button>
         </div>
       </div>
 
@@ -1237,7 +1216,7 @@ export default function DirectorDashboard() {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14 }}>
               <StatCard icon="👥" label="Patient Census" value={totalPatients || '—'} sub={hasPariox ? `${totalPatients} unique patients (Pariox)` : "Total from coordinator reports"} color={B.red} />
-              <StatCard icon="✅" label="Visits Today" value={totalCompleted || '—'} sub={hasPariox ? `of ${totalScheduled} scheduled this week (Pariox)` : `of ${totalScheduled || '—'} scheduled today`} color={B.green} />
+              <StatCard icon="✅" label={hasPariox ? "Completed This Week" : "Visits Today"} value={totalCompleted || '—'} sub={hasPariox ? `${csvData?.missedVisits || 0} missed · ${csvData?.rawCount || 0} raw rows` : `of ${totalScheduled || '—'} scheduled today`} color={B.green} />
               <StatCard icon="⚠️" label="Missed Visits" value={totalMissed || 0} sub={hasPariox ? "Cancelled/no-show this week" : "Require same-day reschedule"} color={totalMissed > 5 ? B.danger : B.yellow} alert={totalMissed > 5 ? 'Above threshold' : null} />
               <StatCard icon="📋" label="New Referrals" value={totalReferrals || 0} sub="Received today" color={B.darkRed} />
             </div>
@@ -1247,6 +1226,25 @@ export default function DirectorDashboard() {
               <StatCard icon="📌" label="Open Tasks" value={totalOpenTasks || 0} sub="Team total" color={B.orange} />
               <StatCard icon="📊" label="Morning Reports" value={`${reportsIn}/${coordinators.length}`} sub="Submitted by 9 AM" color={reportsIn < coordinators.length ? B.danger : B.green} alert={reportsIn < coordinators.length ? `${coordinators.length - reportsIn} missing` : null} />
             </div>
+
+            {/* ── ACTIVE NOT SEEN BANNER ─────────────────────── */}
+            {activeNotSeen != null && activeNotSeen > 0 && (
+              <div style={{ background: activeNotSeen > 50 ? '#FEF2F2' : '#FFFBEB', border: `1px solid ${activeNotSeen > 50 ? '#FECACA' : '#FDE68A'}`, borderRadius: 14, padding: '16px 22px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: activeNotSeen > 50 ? B.danger : B.yellow, marginBottom: 4 }}>
+                    {activeNotSeen > 50 ? '🚨' : '⚠️'} {activeNotSeen} Active Patients Not Scheduled This Week
+                  </div>
+                  <div style={{ fontSize: 12, color: activeNotSeen > 50 ? '#7F1D1D' : '#92400E', lineHeight: 1.6 }}>
+                    These patients are marked Active in your census but have no visits on the current Pariox schedule. Region A has the highest concentration. Assign coordinators to review and schedule immediately.
+                  </div>
+                  <div style={{ fontSize: 11, color: B.lightGray, marginTop: 6 }}>Estimated revenue at risk: ~${(activeNotSeen * CFG.authRiskVisitsPerWeek * CFG.avgReimbursement / 1000).toFixed(1)}K/week</div>
+                </div>
+                <div style={{ textAlign: 'center', marginLeft: 24, flexShrink: 0, background: 'rgba(255,255,255,0.6)', borderRadius: 12, padding: '14px 20px' }}>
+                  <div style={{ fontSize: 40, fontWeight: 800, color: activeNotSeen > 50 ? B.danger : B.yellow, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{activeNotSeen}</div>
+                  <div style={{ fontSize: 10, color: B.lightGray, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 4 }}>unscheduled</div>
+                </div>
+              </div>
+            )}
 
             {/* ── PATIENT CENSUS ──────────────────────────────── */}
             {(() => {
@@ -1389,6 +1387,19 @@ export default function DirectorDashboard() {
               {visitGap > 100 && <AlertItem text={`Weekly visit pace is ${visitGap} below the ${CFG.visitTarget}-visit sustainability threshold`} severity="warning" />}
               {totalMissed > 5 && <AlertItem text={`${totalMissed} missed visits today — verify same-day reschedule documentation`} severity="warning" />}
               {reportsIn === coordinators.length && totalAuthsExpiring <= 3 && totalMissed <= 5 && visitGap <= 100 && coordinators.length > 0 && <AlertItem text="No critical alerts — team is operating within thresholds" severity="info" />}
+              {hasPariox && csvData.staffStats && Object.values(csvData.staffStats).filter(s => (s.totalVisits||0) === 0).slice(0,3).map(s => (
+                <AlertItem key={s.name} text={`${s.name} — 0 visits scheduled this week`} severity="warning" />
+              ))}
+              {hasPariox && csvData.staffStats && Object.values(csvData.staffStats).filter(s => (s.totalVisits||0) > 5 && (s.completedVisits||0) === 0).slice(0,2).map(s => (
+                <AlertItem key={`comp-${s.name}`} text={`${s.name} — ${s.totalVisits} scheduled, 0 completed — check note submissions`} severity="warning" />
+              ))}
+              {/* Clinician productivity flags from Pariox */}
+              {hasPariox && csvData.staffStats && Object.values(csvData.staffStats).filter(s => s.totalVisits === 0).slice(0,3).map(s => (
+                <AlertItem key={s.name} text={`${s.name} (${s.discipline}) — 0 visits scheduled this week`} severity="warning" />
+              ))}
+              {hasPariox && csvData.staffStats && Object.values(csvData.staffStats).filter(s => s.totalVisits > 0 && s.completedVisits === 0 && s.totalVisits > 5).slice(0,2).map(s => (
+                <AlertItem key={s.name} text={`${s.name} — ${s.totalVisits} scheduled, 0 completed — check submission status`} severity="warning" />
+              ))}
               {activeNotSeen != null && activeNotSeen > 20 && <AlertItem text={`${activeNotSeen} active patients not scheduled this week — review coordinator caseload assignments`} severity="critical" />}
               {hasCensus && (censusData.counts.on_hold||0) + (censusData.counts.on_hold_facility||0) > 80 && <AlertItem text={`${(censusData.counts.on_hold||0)+(censusData.counts.on_hold_facility||0)} patients on hold — recovery needed to reach visit target`} severity="warning" />}
               {hasCensus && (censusData.counts.auth_pending||0) + (censusData.counts.active_auth_pending||0) > 10 && <AlertItem text={`${(censusData.counts.auth_pending||0)+(censusData.counts.active_auth_pending||0)} patients with auth issues — estimated $${(((censusData.counts.auth_pending||0)+(censusData.counts.active_auth_pending||0))*CFG.authRiskVisitsPerWeek*CFG.avgReimbursement/1000).toFixed(1)}K/wk revenue blocked`} severity="warning" />}
@@ -2838,7 +2849,10 @@ EXPANSION STATUS
                       const t = p.tracking;
                       return (
                         <div key={p.name} style={{ display: 'grid', gridTemplateColumns: '180px 80px 80px 120px 140px 140px 100px 80px', padding: '10px 20px', borderBottom: `1px solid #FAF4F2`, alignItems: 'center', background: t.priority === 'high' ? '#FFF5F2' : 'transparent' }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: B.black }}>{p.name}</div>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: B.black }}>{p.name}</div>
+                            {p.daysInStatus != null && <div style={{ fontSize: 10, color: p.daysInStatus > 30 ? B.danger : p.daysInStatus > 14 ? B.yellow : B.lightGray, fontWeight: p.daysInStatus > 14 ? 700 : 400 }}>{p.daysInStatus}d on hold</div>}
+                          </div>
                           <div style={{ fontSize: 12, color: B.gray }}>{p.region}</div>
                           <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 600 }}>{STATUS_LABELS[p.status]?.replace('On Hold','OH') || 'OH'}</div>
                           <div style={{ fontSize: 11, color: B.gray }}>{getPayerFromRef(p.ref)}</div>
@@ -2968,11 +2982,15 @@ EXPANSION STATUS
                     const pipe = p.pipeline;
                     const meta = AUTH_STATUSES[pipe.status] || AUTH_STATUSES.not_submitted;
                     const daysWaiting = pipe.submittedDate ? Math.floor((new Date() - new Date(pipe.submittedDate)) / 86400000) : null;
+                    const isOverdue = daysWaiting != null && daysWaiting > 10 && pipe.status === 'submitted';
                     return (
-                      <div key={p.name} style={{ display: 'grid', gridTemplateColumns: '180px 100px 120px 110px 110px 100px 1fr', padding: '10px 20px', borderBottom: `1px solid #FAF4F2`, alignItems: 'center', background: pipe.status === 'denied' ? '#FEF2F2' : daysWaiting > 14 ? '#FFFBEB' : 'transparent' }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: B.black }}>
-                          {p.name}
-                          {p.status === 'active_auth_pending' && <span style={{ fontSize: 9, color: B.orange, marginLeft: 4, fontWeight: 700 }}>ACTIVE</span>}
+                      <div key={p.name} style={{ display: 'grid', gridTemplateColumns: '180px 100px 120px 110px 110px 100px 1fr', padding: '10px 20px', borderBottom: `1px solid #FAF4F2`, alignItems: 'center', background: pipe.status === 'denied' ? '#FEF2F2' : isOverdue ? '#FFF7ED' : 'transparent' }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: B.black }}>
+                            {p.name}
+                            {p.status === 'active_auth_pending' && <span style={{ fontSize: 9, color: B.orange, marginLeft: 4, fontWeight: 700 }}>ACTIVE</span>}
+                          </div>
+                          {daysWaiting != null && <div style={{ fontSize: 10, color: isOverdue ? B.danger : B.lightGray, fontWeight: isOverdue ? 700 : 400 }}>{daysWaiting}d waiting{isOverdue ? ' ⚠️ OVERDUE' : ''}</div>}
                         </div>
                         <div style={{ fontSize: 11, color: B.gray }}>{pipe.payer || getPayerFromRef(p.ref)}</div>
                         <select value={pipe.status} onChange={e => updateAuth(p.name, 'status', e.target.value)}
