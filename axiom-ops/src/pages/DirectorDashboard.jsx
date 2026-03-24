@@ -1502,7 +1502,7 @@ export default function DirectorDashboard({ initialTab = 'overview', readOnly = 
                   <div style={{ fontSize: 14, fontWeight: 700, color: B.black, marginBottom: 16 }}>📊 Revenue by Region (Est.)</div>
                   {csvData?.regionData ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {Object.entries(csvData.regionData).sort(([,a],[,b]) => b.scheduled - a.scheduled).map(([region, data]) => {
+                      {Object.entries(csvData.regionData).sort(([a],[b]) => a.localeCompare(b)).map(([region, data]) => {
                         const regionRev = data.scheduled * avgRate;
                         const maxRev = Math.max(...Object.values(csvData.regionData).map(d => d.scheduled * avgRate));
                         const pct = Math.round(regionRev / maxRev * 100);
@@ -2468,7 +2468,7 @@ EXPANSION STATUS
               <>
                 {/* Region summary cards */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
-                  {Object.entries(csvData.regionData || {}).sort(([,a],[,b]) => b.scheduled - a.scheduled).map(([region, data]) => {
+                  {Object.entries(csvData.regionData || {}).sort(([a],[b]) => a.localeCompare(b)).map(([region, data]) => {
                     const compPct = data.scheduled > 0 ? Math.round(data.completed / data.scheduled * 100) : 0;
                     const barColor = compPct >= 80 ? B.green : compPct >= 50 ? B.yellow : B.red;
                     return (
