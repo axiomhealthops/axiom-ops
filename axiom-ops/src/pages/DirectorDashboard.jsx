@@ -802,6 +802,8 @@ export default function DirectorDashboard({ initialTab = 'overview', readOnly = 
       const ins      = insIdx2      >= 0 ? cols[insIdx2]       : '';
       const soc      = socIdx2      >= 0 ? cols[socIdx2]       : '';
       const ref      = refIdx2      >= 0 ? cols[refIdx2]       : '';
+      const changed = changedIdx2 >= 0 ? cols[changedIdx2] : '';
+      const daysInStatus = changed ? Math.floor((new Date() - new Date(changed)) / 86400000) : null;
 
       if (region) {
         if (!byRegion[region]) {
@@ -819,8 +821,6 @@ export default function DirectorDashboard({ initialTab = 'overview', readOnly = 
         byRegion[region].patients.push({ name: patient, status: statusKey, rawStatus, disc, ins, soc, ref, daysInStatus: daysInStatus });
       }
 
-      const changed = changedIdx2 >= 0 ? cols[changedIdx2] : '';
-      const daysInStatus = changed ? Math.floor((new Date() - new Date(changed)) / 86400000) : null;
       patients.push({ name: patient, status: statusKey, rawStatus, region, disc, ins, soc, ref, changed, daysInStatus });
     }
 
