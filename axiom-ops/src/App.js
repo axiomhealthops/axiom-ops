@@ -28,7 +28,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<Login />} />
 
-      {/* Main app — role determines what they see */}
+      {/* Main app â€” role determines what they see */}
       <Route path="/*" element={
         <ProtectedRoute>
           {isDashboardUser ? <Dashboard /> : <CoordinatorApp />}
