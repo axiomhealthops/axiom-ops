@@ -3,6 +3,30 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 
+// ── Module-level XLSX loader — shared by all upload components ──────────────
+// Load SheetJS once at module level
+if (typeof window !== 'undefined' && !window.XLSX && !document.querySelector('script[src*="xlsx"]')) {
+  const script = document.createElement('script');
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+  script.async = true;
+  document.head.appendChild(script);
+}
+
+// withXLSX — waits for SheetJS to load, then calls callback
+function withXLSX(callback, onError) {
+  if (window.XLSX) { callback(window.XLSX); return; }
+  let attempts = 0;
+  const check = setInterval(() => {
+    attempts++;
+    if (window.XLSX) { clearInterval(check); callback(window.XLSX); }
+    else if (attempts > 40) {
+      clearInterval(check);
+      onError('Excel parser timed out. Try refreshing the page, or save the file as CSV instead.');
+    }
+  }, 250);
+}
+
+
 // ── Brand tokens ──────────────────────────────────────────────
 const B = {
   red:       '#D94F2B',
@@ -241,28 +265,6 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
   const [error, setError] = useState('');
   const [lastFile, setLastFile] = useState('');
   const fileRef = useRef();
-
-  useEffect(() => {
-    // Load SheetJS for Excel support
-    if (!window.XLSX && !document.querySelector('script[src*="xlsx"]')) {
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-      script.async = true;
-      document.head.appendChild(script);
-    }
-  }, []);
-
-  // Wait for XLSX to load then run callback — handles async script loading
-  const withXLSX = (callback, onError) => {
-    if (window.XLSX) { callback(window.XLSX); return; }
-    let attempts = 0;
-    const check = setInterval(() => {
-      attempts++;
-      if (window.XLSX) { clearInterval(check); callback(window.XLSX); }
-      else if (attempts > 40) { clearInterval(check); onError('Excel parser timed out. Please save as CSV and try again.'); }
-    }, 250);
-  };
-
 
   function processRows(rows, headersArr, statusIdx, dateIdx) {
     let completed = 0, missed = 0, scheduled = 0;
