@@ -193,6 +193,88 @@ function StatCard({ label, value, sub, color = B.red, alert, icon }) {
       {sub && <div style={{ fontSize: 11, color: B.lightGray, marginTop: 6 }}>{sub}</div>}
       {alert && <div style={{ fontSize: 11, color: B.danger, marginTop: 5, fontWeight: 600 }}>{alert}</div>}
     </div>
+
+      {/* ── MISSED VISITS MODAL ─────────────────────────────── */}
+      {showMissedModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }} onClick={()=>setShowMissedModal(false)}>
+          <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:700, maxHeight:'85vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }} onClick={e=>e.stopPropagation()}>
+            {/* Modal header */}
+            <div style={{ padding:'20px 24px', borderBottom:`1px solid ${B.border}`, display:'flex', justifyContent:'space-between', alignItems:'center', background:`linear-gradient(135deg,${B.darkRed},${B.red})` }}>
+              <div>
+                <div style={{ fontSize:16, fontWeight:800, color:'#fff' }}>⚠️ Missed & Incomplete Visits</div>
+                <div style={{ fontSize:12, color:'rgba(255,255,255,0.75)', marginTop:2 }}>
+                  Past-dated visits not yet marked completed — each requires follow-up
+                </div>
+              </div>
+              <button onClick={()=>setShowMissedModal(false)} style={{ background:'rgba(255,255,255,0.15)', border:'none', borderRadius:8, color:'#fff', padding:'6px 12px', fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>✕ Close</button>
+            </div>
+
+            {/* Summary bar */}
+            <div style={{ padding:'12px 24px', background:'#FEF2F2', borderBottom:`1px solid #FECACA`, display:'flex', gap:24 }}>
+              {[
+                { label:'Total Missed', value: csvData?.missedVisitDetails?.length || 0, color:B.danger },
+                { label:'Regions Affected', value: [...new Set((csvData?.missedVisitDetails||[]).map(v=>v.region))].length, color:B.orange },
+                { label:'Clinicians Affected', value: [...new Set((csvData?.missedVisitDetails||[]).map(v=>v.staff))].length, color:B.yellow },
+              ].map(s => (
+                <div key={s.label}>
+                  <div style={{ fontSize:22, fontWeight:800, color:s.color, fontFamily:'monospace' }}>{s.value}</div>
+                  <div style={{ fontSize:10, color:B.gray, textTransform:'uppercase', letterSpacing:'0.06em' }}>{s.label}</div>
+                </div>
+              ))}
+              <div style={{ marginLeft:'auto', fontSize:12, color:B.danger, alignSelf:'center', fontWeight:600 }}>
+                Each visit = ~${CFG.avgReimbursement} unrealized · Total: ~${((csvData?.missedVisitDetails?.length||0) * CFG.avgReimbursement).toLocaleString()}
+              </div>
+            </div>
+
+            {/* Visit list */}
+            <div style={{ overflowY:'auto', flex:1 }}>
+              {/* Table header */}
+              <div style={{ display:'grid', gridTemplateColumns:'180px 180px 70px 100px 1fr', padding:'8px 24px', background:'#FBF7F6', borderBottom:`1px solid ${B.border}`, position:'sticky', top:0 }}>
+                {['Patient','Clinician','Region','Date','Visit Type'].map(h => (
+                  <div key={h} style={{ fontSize:10, fontWeight:700, color:B.lightGray, textTransform:'uppercase', letterSpacing:'0.08em' }}>{h}</div>
+                ))}
+              </div>
+
+              {(csvData?.missedVisitDetails||[]).length === 0 ? (
+                <div style={{ padding:'48px', textAlign:'center', color:B.lightGray }}>
+                  <div style={{ fontSize:32, marginBottom:8 }}>✅</div>
+                  <div style={{ fontSize:14, fontWeight:700 }}>No missed visits detected</div>
+                  <div style={{ fontSize:12, marginTop:4 }}>All past-dated visits have been marked completed</div>
+                </div>
+              ) : (csvData?.missedVisitDetails||[])
+                .sort((a,b) => new Date(a.date) - new Date(b.date))
+                .map((v,i) => {
+                  const dateStr = v.date ? new Date(v.date).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) : '—';
+                  const isYesterday = v.date && new Date(v.date).toDateString() === new Date(Date.now()-86400000).toDateString();
+                  return (
+                    <div key={i} style={{ display:'grid', gridTemplateColumns:'180px 180px 70px 100px 1fr', padding:'11px 24px', borderBottom:`1px solid #FAF4F2`, alignItems:'center', background: isYesterday ? '#FFF5F2' : 'transparent' }}>
+                      <div style={{ fontSize:12, fontWeight:600, color:B.black, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{v.patient}</div>
+                      <div style={{ fontSize:12, color:B.gray, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        <span style={{ fontWeight:600, color:B.black }}>{v.staff?.split(',')[0]}</span>
+                        {v.staff?.includes(',') && <span style={{ color:B.lightGray }}>{v.staff.split(',').slice(1).join(',')}</span>}
+                      </div>
+                      <div style={{ fontSize:12, color:B.red, fontWeight:700 }}>{v.region}</div>
+                      <div style={{ fontSize:11, color: isYesterday ? B.danger : B.gray, fontWeight: isYesterday ? 700 : 400 }}>
+                        {dateStr}
+                        {isYesterday && <div style={{ fontSize:9, color:B.danger }}>YESTERDAY</div>}
+                      </div>
+                      <div style={{ fontSize:11, color:B.lightGray, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {(v.event||'').replace(/\*e\*/g,'').replace('Lymphedema ','').trim()}
+                      </div>
+                    </div>
+                  );
+              })}
+            </div>
+
+            {/* Footer action */}
+            <div style={{ padding:'14px 24px', borderTop:`1px solid ${B.border}`, background:'#FBF7F6', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <div style={{ fontSize:12, color:B.gray }}>Follow up with each clinician to submit visit notes or reschedule</div>
+              <button onClick={()=>setShowMissedModal(false)} style={{ background:`linear-gradient(135deg,${B.red},${B.darkRed})`, border:'none', borderRadius:8, color:'#fff', padding:'8px 18px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -269,6 +351,13 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
   function processRows(rows, headersArr, statusIdx, dateIdx) {
     let completed = 0, missed = 0, scheduled = 0;
     const dailyMap = {};
+    const missedVisitDetails = [];
+    const today = new Date(); today.setHours(0,0,0,0);
+    const patIdx  = headersArr.findIndex(h => h === 'patient');
+    const staffIdx = headersArr.findIndex(h => h === 'staff');
+    const regionIdx = headersArr.findIndex(h => h === 'region');
+    const eventIdx = headersArr.findIndex(h => h === 'event');
+    const timeIdx = headersArr.findIndex(h => h === 'time');
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i]; if (!row || !row.length) continue;
       const status = String(row[statusIdx] || '').toLowerCase().trim();
@@ -385,7 +474,7 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
       totalVisits: s.totalVisits,
       uniquePatients: s.uniquePatients.size,
     }));
-    return { completedVisits: xDedupedComp, missedVisits: missed, scheduledVisits: xDedupedSched, rawScheduled: scheduled, rawCompleted: completed, dailyTrend, rowCount: rows.length - 1, regionData, uniquePatients: xlsxPatientSet.size, staffList: xlsxStaffList, staffStats: xlsxStaffStats, dedupedCount: xDedupedSched, rawCount: scheduled };
+    return { completedVisits: xDedupedComp, missedVisits: missed, scheduledVisits: xDedupedSched, rawScheduled: scheduled, rawCompleted: completed, dailyTrend, rowCount: rows.length - 1, regionData, uniquePatients: xlsxPatientSet.size, staffList: xlsxStaffList, staffStats: xlsxStaffStats, dedupedCount: xDedupedSched, rawCount: scheduled, missedVisitDetails };
   }
 
   function handleFile(file) {
@@ -1029,6 +1118,7 @@ export default function DirectorDashboard({ initialTab = 'overview', readOnly = 
   };
 
   // Auth Pipeline tracker
+  const [showMissedModal, setShowMissedModal] = useState(false);
   const [authPipeline, setAuthPipeline] = useState(() => {
     try { const s = localStorage.getItem('axiom_auth_pipeline'); return s ? JSON.parse(s) : []; } catch { return []; }
   });
