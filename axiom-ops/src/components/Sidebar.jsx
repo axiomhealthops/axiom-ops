@@ -15,6 +15,7 @@ const NAV = [
     items: [
       { id: 'overview',    label: 'Overview',      icon: '🏠', roles: ['super_admin','ceo','director','regional_mgr','admin'] },
       { id: 'alerts',      label: 'Live Alerts',   icon: '🔔', roles: ['super_admin','director','regional_mgr'], badge: 'alerts' },
+      { id: 'actions',     label: 'Action List',   icon: '📋', roles: ['super_admin','director'], badge: 'actions' },
     ],
   },
   {
@@ -25,6 +26,7 @@ const NAV = [
       { id: 'visits',      label: 'Visit Schedule',    icon: '📅', roles: ['super_admin','ceo','director','regional_mgr'] },
       { id: 'recovery',    label: 'On-Hold Recovery',  icon: '⏸️', roles: ['super_admin','director','regional_mgr'], badge: 'onhold' },
       { id: 'auths',       label: 'Authorizations',    icon: '🔒', roles: ['super_admin','director','regional_mgr'], badge: 'auths' },
+      { id: 'authtrack',   label: 'Auth Tracker',      icon: '📑', roles: ['super_admin','director','regional_mgr'] },
     ],
   },
   {
@@ -106,6 +108,7 @@ export default function Sidebar({ activePage, onNavigate, alerts = {} }) {
     if (badgeKey === 'alerts') return alerts.critical || 0;
     if (badgeKey === 'onhold') return alerts.onHold || 0;
     if (badgeKey === 'auths') return alerts.authPending || 0;
+    if (badgeKey === 'actions') return alerts.actionItems || 0;
     return 0;
   };
 
