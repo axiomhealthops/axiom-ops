@@ -1,9 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
-import Login              from './pages/Login';
-import Dashboard          from './pages/Dashboard';
-import ExecutiveDashboard from './pages/ExecutiveDashboard';
-import CoordinatorApp     from './pages/CoordinatorApp';
+import Login          from './pages/Login';
+import Dashboard      from './pages/Dashboard';
+import CoordinatorApp from './pages/CoordinatorApp';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -31,7 +30,7 @@ function AppRoutes() {
       case 'admin':
         return <Dashboard />;
       case 'ceo':
-        return <ExecutiveDashboard />;
+        return <Dashboard />;
       case 'coordinator':
       default:
         return <CoordinatorApp />;
