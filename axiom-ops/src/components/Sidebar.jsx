@@ -68,6 +68,7 @@ const NAV = [
     icon: '⚙️',
     adminOnly: true,
     items: [
+      { id: 'superadmin',  label: 'Super Admin Panel', icon: '🔑', roles: ['super_admin'] },
       { id: 'users',       label: 'User Management',   icon: '👤', roles: ['super_admin'] },
       { id: 'data',        label: 'Data Uploads',      icon: '📤', roles: ['super_admin','director'] },
       { id: 'settings',    label: 'Settings',          icon: '⚙️', roles: ['super_admin','director'] },
