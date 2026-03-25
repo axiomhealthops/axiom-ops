@@ -1,8 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
-import Login          from './pages/Login';
-import Dashboard      from './pages/Dashboard';
-import CoordinatorApp from './pages/CoordinatorApp';
+import Login              from './pages/Login';
+import Dashboard          from './pages/Dashboard';
+import CoordinatorApp     from './pages/CoordinatorApp';
+import MissionControlApp  from './pages/MissionControlApp';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -24,13 +25,21 @@ function AppRoutes() {
 
   const renderApp = () => {
     switch(role) {
+      // Full platform dashboard
       case 'super_admin':
+      case 'ceo':
       case 'director':
       case 'regional_mgr':
       case 'admin':
         return <Dashboard />;
-      case 'ceo':
+      // Pod leader — full dashboard (same shell, filtered sidebar)
+      case 'pod_leader':
         return <Dashboard />;
+      // Mission Control team roles — stripped shell, scoped to their team
+      case 'team_leader':
+      case 'team_member':
+        return <MissionControlApp />;
+      // Legacy field coordinator
       case 'coordinator':
       default:
         return <CoordinatorApp />;
