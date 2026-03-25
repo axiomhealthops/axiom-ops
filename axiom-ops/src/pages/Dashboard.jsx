@@ -8,6 +8,8 @@ import LiveAlerts from './LiveAlerts';
 import PatientCensus from './PatientCensus';
 import VisitSchedule from './VisitSchedule';
 import ExecutiveReport from './ExecutiveReport';
+import ActionList from './ActionList';
+import AuthTracker from './AuthTracker';
 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10',
@@ -30,7 +32,7 @@ const PAGE_TITLES = {
   regions:'Regional Breakdown', team:'Team Performance', expansion:'Expansion Tracker',
   reports:'Daily Reports', executive:'Executive Report', recovery:'On-Hold Recovery',
   auths:'Authorization Pipeline', data:'Data & Integrations', settings:'Settings',
-  users:'User Management',
+  users:'User Management', actions:'Director Action List', authtrack:'Authorization Tracker',
 };
 
 const ROLE_VIEWS = [
@@ -87,7 +89,9 @@ export default function Dashboard() {
     if (currentPage === 'alerts')  return <LiveAlerts  censusData={censusData} csvData={csvData} hasCensus={hasCensus} hasPariox={hasPariox} CFG={CFG} />;
     if (currentPage === 'census')  return <PatientCensus censusData={censusData} hasCensus={hasCensus} CFG={CFG} />;
     if (currentPage === 'visits')  return <VisitSchedule csvData={csvData} hasPariox={hasPariox} />;
-    if (currentPage === 'executive') return <ExecutiveReport csvData={csvData} censusData={censusData} hasPariox={hasPariox} hasCensus={hasCensus} CFG={CFG} />;
+    if (currentPage === 'executive')  return <ExecutiveReport csvData={csvData} censusData={censusData} hasPariox={hasPariox} hasCensus={hasCensus} CFG={CFG} />;
+    if (currentPage === 'actions')   return <ActionList censusData={censusData} hasCensus={hasCensus} />;
+    if (currentPage === 'authtrack') return <AuthTracker censusData={censusData} hasCensus={hasCensus} />;
     return <DirectorDashboard key={tab} initialTab={tab} />;
   };
 
