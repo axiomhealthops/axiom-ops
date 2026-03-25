@@ -303,15 +303,11 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
     // Build region breakdown and staff map simultaneously
   const regionMap = {};
   const staffMap = {};
-   const regionIdx = headersArr.findIndex(h => h === 'region');
    const staffIdx2 = headersArr.findIndex(h => h === 'staff');
    const patientIdx2 = headersArr.findIndex(h => h === 'patient');
    const discIdx2 = headersArr.findIndex(h => h === 'disc');
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i]; if (!row || !row.length) continue;
-    const regionIdx = headersArr.findIndex(h => h === 'region');
-    const staffIdx = headersArr.findIndex(h => h === 'staff');
-    const patientIdx = headersArr.findIndex(h => h === 'patient');
     if (regionIdx === -1) continue;
      const region = String(row[regionIdx] || '').trim();
      const staff = String(row[staffIdx2] || '').trim();
