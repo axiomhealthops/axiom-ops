@@ -10,6 +10,7 @@ import VisitSchedule from './VisitSchedule';
 import ExecutiveReport from './ExecutiveReport';
 import ActionList from './ActionList';
 import AuthTracker from './AuthTracker';
+import SuperAdminPanel from './SuperAdminPanel';
 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10',
@@ -33,6 +34,7 @@ const PAGE_TITLES = {
   reports:'Daily Reports', executive:'Executive Report', recovery:'On-Hold Recovery',
   auths:'Authorization Pipeline', data:'Data & Integrations', settings:'Settings',
   users:'User Management', actions:'Director Action List', authtrack:'Authorization Tracker',
+  superadmin:'Super Admin Panel',
 };
 
 const ROLE_VIEWS = [
@@ -92,6 +94,7 @@ export default function Dashboard() {
     if (currentPage === 'executive')  return <ExecutiveReport csvData={csvData} censusData={censusData} hasPariox={hasPariox} hasCensus={hasCensus} CFG={CFG} />;
     if (currentPage === 'actions')   return <ActionList censusData={censusData} hasCensus={hasCensus} />;
     if (currentPage === 'authtrack') return <AuthTracker censusData={censusData} hasCensus={hasCensus} />;
+    if (currentPage === 'superadmin') return <SuperAdminPanel />;
     return <DirectorDashboard key={tab} initialTab={tab} />;
   };
 
