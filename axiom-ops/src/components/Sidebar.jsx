@@ -14,19 +14,19 @@ const NAV = [
     icon: '⚡',
     items: [
       { id: 'overview',    label: 'Overview',      icon: '🏠', roles: ['super_admin','ceo','director','regional_mgr','admin'] },
-      { id: 'alerts',      label: 'Live Alerts',   icon: '🔔', roles: ['super_admin','director','regional_mgr'], badge: 'alerts' },
-      { id: 'actions',     label: 'Action List',   icon: '📋', roles: ['super_admin','director'], badge: 'actions' },
+      { id: 'alerts',      label: 'Live Alerts',   icon: '🔔', roles: ['super_admin','director','regional_mgr','pod_leader'], badge: 'alerts' },
+      { id: 'actions',     label: 'Action List',   icon: '📋', roles: ['super_admin','director','pod_leader','team_leader'], badge: 'actions' },
     ],
   },
   {
     section: 'Operations',
     icon: '🏥',
     items: [
-      { id: 'census',      label: 'Patient Census',    icon: '👥', roles: ['super_admin','ceo','director','regional_mgr'] },
-      { id: 'visits',      label: 'Visit Schedule',    icon: '📅', roles: ['super_admin','ceo','director','regional_mgr'] },
+      { id: 'census',      label: 'Patient Census',    icon: '👥', roles: ['super_admin','ceo','director','regional_mgr','pod_leader','team_leader','team_member'] },
+      { id: 'visits',      label: 'Visit Schedule',    icon: '📅', roles: ['super_admin','ceo','director','regional_mgr','pod_leader','team_leader','team_member'] },
       { id: 'recovery',    label: 'On-Hold Recovery',  icon: '⏸️', roles: ['super_admin','director','regional_mgr'], badge: 'onhold' },
       { id: 'auths',       label: 'Authorizations',    icon: '🔒', roles: ['super_admin','director','regional_mgr'], badge: 'auths' },
-      { id: 'authtrack',   label: 'Auth Tracker',      icon: '📑', roles: ['super_admin','director','regional_mgr'] },
+      { id: 'authtrack',   label: 'Auth Tracker',      icon: '📑', roles: ['super_admin','director','regional_mgr','pod_leader','team_leader','team_member'] },
     ],
   },
   {
@@ -43,7 +43,7 @@ const NAV = [
     section: 'People',
     icon: '👤',
     items: [
-      { id: 'staff',       label: 'Staff Directory',   icon: '🏷️', roles: ['super_admin','director','regional_mgr'] },
+      { id: 'staff',       label: 'Staff Directory',   icon: '🏷️', roles: ['super_admin','director','regional_mgr','pod_leader'] },
       { id: 'regions',     label: 'Regions',           icon: '🗺️', roles: ['super_admin','director','regional_mgr'] },
       { id: 'team',        label: 'Team',              icon: '🤝', roles: ['super_admin','director','regional_mgr'] },
     ],
@@ -59,7 +59,7 @@ const NAV = [
     section: 'Reports',
     icon: '📋',
     items: [
-      { id: 'reports',     label: 'Daily Reports',     icon: '📝', roles: ['super_admin','director','regional_mgr'] },
+      { id: 'reports',     label: 'Daily Reports',     icon: '📝', roles: ['super_admin','director','regional_mgr','pod_leader','team_leader'] },
       { id: 'executive',   label: 'Executive Report',  icon: '📊', roles: ['super_admin','ceo','director'] },
     ],
   },
