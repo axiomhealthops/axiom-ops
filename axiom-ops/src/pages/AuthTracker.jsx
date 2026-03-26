@@ -981,10 +981,6 @@ function AssignmentPanel({ records, onBulkAssign, onClose }) {
   const [filterRegion, setFilterRegion] = useState('all');
   const [filterCurrent, setFilterCurrent] = useState('all');
   const [saving, setSaving] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null); // record requesting delete
-  const [deleteReason, setDeleteReason] = useState('');
-  const [deletePending, setDeletePending] = useState([]); // for director view
-  const [showDeleteQueue, setShowDeleteQueue] = useState(false);
   const [saved, setSaved] = useState(0);
 
   const payers = [...new Set(records.map(r=>r.payer).filter(p=>p&&p.length>2))].sort();
@@ -1397,6 +1393,10 @@ export default function AuthTracker() {
   const [editingRecord, setEditingRecord] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deletePending, setDeletePending] = useState([]);
+  const [showDeleteQueue, setShowDeleteQueue] = useState(false);
   const [search, setSearch] = useState('');
   const [filterPayer, setFilterPayer] = useState('all');
   const [filterRegion, setFilterRegion] = useState('all');
@@ -1406,12 +1406,17 @@ export default function AuthTracker() {
   const setField = (k,v) => setEditForm(p=>({...p,[k]:v}));
 
   const loadRecords = async () => {
-    const { data } = await supabase.from('auth_records').select('*').order('patient_name');
-    setRecords(data || []);
-    // Load pending deletions for director
-    const pending = (data || []).filter(r => r.delete_requested && !r.deleted);
-    setDeletePending(pending);
-    setLoading(false);
+    try {
+      const { data, error } = await supabase.from('auth_records').select('*').order('patient_name');
+      if (error) { console.error('auth_records load error:', error); setLoading(false); return; }
+      setRecords(data || []);
+      const pending = (data || []).filter(r => r.delete_requested === true && r.deleted !== true);
+      setDeletePending(pending);
+    } catch(e) {
+      console.error('auth_records exception:', e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -1425,8 +1430,8 @@ export default function AuthTracker() {
   // Augment records with priority
   // Filter out fully deleted records and soft-deleted from non-directors
   const visibleRecords = useMemo(() => records.filter(r => {
-    if (r.deleted) return false;             // approved deletion — always hidden
-    if (r.delete_requested && !isLeaderOrAbove) return false; // hide from non-directors once requested
+    if (r.deleted === true) return false;             // approved deletion — always hidden
+    if (r.delete_requested === true && !isLeaderOrAbove) return false; // hide from non-directors once requested
     return true;
   }), [records, isLeaderOrAbove]);
 
@@ -1435,7 +1440,7 @@ export default function AuthTracker() {
     priority: priorityOf(r),
     txRemaining: (r.tx_approved||0) - (r.tx_used||0),
     daysLeft: daysUntil(r.auth_thru),
-  })).sort((a,b) => (PRIORITY_META[a.priority]?.order||9) - (PRIORITY_META[b.priority]?.order||9)), [visibleRecords]);
+  })).filter(r => r && r.patient_name).sort((a,b) => (PRIORITY_META[a.priority]?.order||9) - (PRIORITY_META[b.priority]?.order||9)), [visibleRecords]);
 
   const visible = useMemo(() => {
     let list = augmented;
