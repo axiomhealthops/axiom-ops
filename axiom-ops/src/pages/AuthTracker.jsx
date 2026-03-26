@@ -893,6 +893,9 @@ async function exportToExcel(records, filename) {
     'VOB Verified': r.vob_verified ? 'Yes' : 'No',
     'Claim Paid': r.claim_paid ? 'Yes' : 'No',
     'Notes': r.notes || '',
+    'Deleted': r.deleted ? 'Yes' : '',
+    'Delete Reason': r.delete_reason || '',
+    'Delete Requested': r.delete_requested ? 'Pending Approval' : '',
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   // Column widths
@@ -978,6 +981,10 @@ function AssignmentPanel({ records, onBulkAssign, onClose }) {
   const [filterRegion, setFilterRegion] = useState('all');
   const [filterCurrent, setFilterCurrent] = useState('all');
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null); // record requesting delete
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deletePending, setDeletePending] = useState([]); // for director view
+  const [showDeleteQueue, setShowDeleteQueue] = useState(false);
   const [saved, setSaved] = useState(0);
 
   const payers = [...new Set(records.map(r=>r.payer).filter(p=>p&&p.length>2))].sort();
@@ -1237,6 +1244,146 @@ function DailyTaskList({ records, currentUser }) {
 }
 
 
+
+// ── Delete Request Modal ──────────────────────────────────────
+function DeleteRequestModal({ record, requestedBy, onSubmit, onClose }) {
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (!reason.trim()) return;
+    setSubmitting(true);
+    await supabase.from('auth_records').update({
+      delete_requested: true,
+      delete_reason: reason.trim(),
+      delete_requested_by: requestedBy || 'Coordinator',
+      delete_requested_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq('id', record.id);
+    setSubmitting(false);
+    onSubmit();
+  };
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div style={{ background:'#fff', borderRadius:18, padding:'28px', width:'100%', maxWidth:480, boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+        <div style={{ fontSize:24, marginBottom:8, textAlign:'center' }}>🗑️</div>
+        <div style={{ fontSize:16, fontWeight:800, color:'#1A1A1A', marginBottom:4, textAlign:'center' }}>Request Chart Removal</div>
+        <div style={{ fontSize:13, color:'#6B7280', marginBottom:20, textAlign:'center' }}>
+          This will send a removal request to the Director for approval.<br/>
+          The record will remain in the database.
+        </div>
+        <div style={{ background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:10, padding:'12px 16px', marginBottom:18 }}>
+          <div style={{ fontSize:13, fontWeight:700, color:'#1A1A1A' }}>{record.patient_name}</div>
+          <div style={{ fontSize:11, color:'#6B7280', marginTop:2 }}>{record.payer||'Unknown'} · Region {record.region||'—'}</div>
+        </div>
+        <div style={{ marginBottom:16 }}>
+          <label style={{ display:'block', fontSize:11, fontWeight:700, color:'#6B7280', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:6 }}>Reason for Removal *</label>
+          <textarea value={reason} onChange={e=>setReason(e.target.value)} placeholder="e.g. Duplicate entry, data import error, End of Report row, patient was never enrolled..." rows={3} autoFocus
+            style={{ width:'100%', padding:'9px 12px', border:`1.5px solid ${reason?'#D94F2B':'#E5E7EB'}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', resize:'vertical', color:'#1A1A1A', boxSizing:'border-box' }} />
+        </div>
+        <div style={{ background:'#FFFBEB', border:'1px solid #FDE68A', borderRadius:8, padding:'10px 14px', marginBottom:18, fontSize:12, color:'#92400E' }}>
+          ⚠️ A Director must approve this removal. The record will be hidden from your view immediately but kept in the database.
+        </div>
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+          <button onClick={onClose} style={{ background:'none', border:'1px solid #E5E7EB', borderRadius:8, color:'#6B7280', padding:'9px 18px', fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>Cancel</button>
+          <button onClick={submit} disabled={!reason.trim()||submitting} style={{ background:'linear-gradient(135deg,#DC2626,#991B1B)', border:'none', borderRadius:8, color:'#fff', padding:'9px 22px', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', opacity:!reason.trim()||submitting?0.5:1 }}>
+            {submitting?'Submitting...':'Submit for Approval'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Director Deletion Approval Queue ─────────────────────────
+function DeletionQueue({ records, onAction, onClose }) {
+  const [processing, setProcessing] = useState(null);
+
+  const approve = async (record) => {
+    setProcessing(record.id);
+    await supabase.from('auth_records').update({
+      deleted: true,
+      deleted_approved_by: 'director',
+      deleted_at: new Date().toISOString(),
+      delete_requested: false,
+      updated_at: new Date().toISOString(),
+    }).eq('id', record.id);
+    setProcessing(null);
+    onAction();
+  };
+
+  const reject = async (record) => {
+    setProcessing(record.id);
+    await supabase.from('auth_records').update({
+      delete_requested: false,
+      delete_reason: null,
+      delete_requested_by: null,
+      delete_requested_at: null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', record.id);
+    setProcessing(null);
+    onAction();
+  };
+
+  return (
+    <div style={{ background:'#fff', border:'1.5px solid #FECACA', borderRadius:16, padding:'20px 24px', marginBottom:20, boxShadow:'0 4px 16px rgba(220,38,38,0.08)' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+        <div>
+          <div style={{ fontSize:15, fontWeight:800, color:'#1A1A1A' }}>🗑️ Pending Removal Requests</div>
+          <div style={{ fontSize:12, color:'#6B7280', marginTop:2 }}>Review and approve or reject chart removal requests. Approved records are hidden but retained in the database.</div>
+        </div>
+        <button onClick={onClose} style={{ background:'none', border:'1px solid #E5E7EB', borderRadius:8, color:'#6B7280', padding:'6px 12px', fontSize:12, cursor:'pointer', fontFamily:'inherit' }}>✕ Close</button>
+      </div>
+
+      {records.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'24px', color:'#9CA3AF', fontSize:13 }}>✅ No pending removal requests</div>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          {records.map(r => (
+            <div key={r.id} style={{ background:'#FFF8F8', border:'1px solid #FECACA', borderRadius:12, padding:'14px 18px' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+                    <div style={{ fontSize:14, fontWeight:800, color:'#1A1A1A' }}>{r.patient_name}</div>
+                    <span style={{ fontSize:10, background:'#FEF2F2', color:'#DC2626', border:'1px solid #FECACA', borderRadius:10, padding:'2px 7px', fontWeight:700 }}>Removal Requested</span>
+                  </div>
+                  <div style={{ fontSize:12, color:'#6B7280', marginBottom:6 }}>
+                    {r.payer||'Unknown'} · Region {r.region||'—'} · Auth #{r.auth_number||'none'}
+                  </div>
+                  <div style={{ background:'#fff', border:'1px solid #E5E7EB', borderRadius:8, padding:'8px 12px', fontSize:12, color:'#1A1A1A' }}>
+                    <span style={{ fontWeight:700, color:'#6B7280' }}>Reason: </span>{r.delete_reason}
+                  </div>
+                  {r.delete_requested_at && (
+                    <div style={{ fontSize:10, color:'#9CA3AF', marginTop:5 }}>
+                      Requested {new Date(r.delete_requested_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'})}
+                      {r.delete_requested_by && ` by ${r.delete_requested_by}`}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display:'flex', gap:8, flexShrink:0 }}>
+                  <button onClick={()=>reject(r)} disabled={processing===r.id}
+                    style={{ background:'none', border:'1.5px solid #E5E7EB', borderRadius:8, color:'#6B7280', padding:'8px 16px', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
+                    ✕ Reject
+                  </button>
+                  <button onClick={()=>approve(r)} disabled={processing===r.id}
+                    style={{ background:'linear-gradient(135deg,#DC2626,#991B1B)', border:'none', borderRadius:8, color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit', opacity:processing===r.id?0.6:1 }}>
+                    {processing===r.id?'Processing...':'✓ Approve Removal'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ marginTop:14, padding:'10px 14px', background:'#F9FAFB', borderRadius:8, fontSize:11, color:'#9CA3AF' }}>
+        💾 All removed records are retained in Supabase and included in Excel exports with a "Deleted" column for audit purposes.
+      </div>
+    </div>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────
 export default function AuthTracker() {
   const { isSuperAdmin, isDirector, isTeamLeader, profile } = useAuth();
@@ -1261,6 +1408,9 @@ export default function AuthTracker() {
   const loadRecords = async () => {
     const { data } = await supabase.from('auth_records').select('*').order('patient_name');
     setRecords(data || []);
+    // Load pending deletions for director
+    const pending = (data || []).filter(r => r.delete_requested && !r.deleted);
+    setDeletePending(pending);
     setLoading(false);
   };
 
@@ -1273,12 +1423,19 @@ export default function AuthTracker() {
   }, []);
 
   // Augment records with priority
-  const augmented = useMemo(() => records.map(r => ({
+  // Filter out fully deleted records and soft-deleted from non-directors
+  const visibleRecords = useMemo(() => records.filter(r => {
+    if (r.deleted) return false;             // approved deletion — always hidden
+    if (r.delete_requested && !isLeaderOrAbove) return false; // hide from non-directors once requested
+    return true;
+  }), [records, isLeaderOrAbove]);
+
+  const augmented = useMemo(() => visibleRecords.map(r => ({
     ...r,
     priority: priorityOf(r),
     txRemaining: (r.tx_approved||0) - (r.tx_used||0),
     daysLeft: daysUntil(r.auth_thru),
-  })).sort((a,b) => (PRIORITY_META[a.priority]?.order||9) - (PRIORITY_META[b.priority]?.order||9)), [records]);
+  })).sort((a,b) => (PRIORITY_META[a.priority]?.order||9) - (PRIORITY_META[b.priority]?.order||9)), [visibleRecords]);
 
   const visible = useMemo(() => {
     let list = augmented;
@@ -1423,6 +1580,12 @@ export default function AuthTracker() {
           {isLeaderOrAbove && <button onClick={()=>setShowAssign(p=>!p)} style={{ padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit', border:`1px solid ${showAssign?B.purple:B.border}`, background:showAssign?'#F5F3FF':'transparent', color:showAssign?B.purple:B.gray }}>👥 Manage Assignments</button>}
           <button onClick={()=>exportToExcel(visible,'auth_records_export.xlsx')} style={{ padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit', border:`1px solid ${B.border}`, background:'transparent', color:B.gray }}>⬇️ Export Records</button>
           {isLeaderOrAbove && <button onClick={()=>exportPayerReport(augmented,`axiomhealth_payer_report_${new Date().toISOString().split('T')[0]}.xlsx`)} style={{ padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit', border:`1px solid ${B.border}`, background:'transparent', color:B.blue }}>📊 Payer Report</button>}
+          {(isSuperAdmin||isDirector) && deletePending.length > 0 && (
+            <button onClick={()=>setShowDeleteQueue(p=>!p)} style={{ padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit', border:`1px solid ${B.danger}`, background:showDeleteQueue?'#FEF2F2':'transparent', color:B.danger, fontWeight:700, position:'relative' }}>
+              🗑️ Deletions
+              <span style={{ position:'absolute', top:-6, right:-6, background:B.danger, color:'#fff', borderRadius:'50%', width:18, height:18, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:800 }}>{deletePending.length}</span>
+            </button>
+          )}
           {['dashboard','list','calendar'].map(v=>(
             <button key={v} onClick={()=>setView(v)} style={{ padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit', border:`1px solid ${view===v?B.red:B.border}`, background:view===v?'#FFF5F2':'transparent', color:view===v?B.red:B.gray, fontWeight:view===v?700:400 }}>
               {v==='dashboard'?'📊 Overview':v==='list'?'📋 Patient List':'📅 Follow-Up Calendar'}
@@ -1440,6 +1603,25 @@ export default function AuthTracker() {
           records={augmented}
           onBulkAssign={()=>{ loadRecords(); }}
           onClose={()=>setShowAssign(false)}
+        />
+      )}
+
+      {/* Deletion Queue — director only */}
+      {showDeleteQueue && (isSuperAdmin||isDirector) && (
+        <DeletionQueue
+          records={deletePending}
+          onAction={()=>{ loadRecords(); }}
+          onClose={()=>setShowDeleteQueue(false)}
+        />
+      )}
+
+      {/* Delete Request Modal */}
+      {deleteTarget && (
+        <DeleteRequestModal
+          record={deleteTarget}
+          requestedBy={profile?.full_name || profile?.name || 'Coordinator'}
+          onSubmit={()=>{ loadRecords(); setDeleteTarget(null); }}
+          onClose={()=>setDeleteTarget(null)}
         />
       )}
 
