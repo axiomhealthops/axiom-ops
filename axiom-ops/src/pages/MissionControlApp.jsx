@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { AuthDashboard, CareCoordDashboard } from './TeamDashboard';
 import AuthTracker from './AuthTracker';
 import PatientCensus from './PatientCensus';
 import VisitSchedule from './VisitSchedule';
@@ -23,7 +24,7 @@ const TEAM_META = {
 function getAllowedPages(role, team) {
   // team_member permissions by team
   if (role === 'team_member') {
-    const base = ['census', 'visits'];
+    const base = ['home', 'census', 'visits'];
     if (team === 'auth')       return [...base, 'authtrack', 'submit'];
     if (team === 'care_coord') return [...base, 'reports', 'actions'];
     if (team === 'intake')     return [...base, 'submit'];
@@ -31,13 +32,13 @@ function getAllowedPages(role, team) {
   }
   // team_leader permissions by team
   if (role === 'team_leader') {
-    const base = ['census', 'visits', 'authtrack', 'reports', 'actions'];
-    return base; // same across teams for now — all leaders see the same pages
+    return ['home', 'census', 'visits', 'authtrack', 'reports', 'actions'];
   }
   return [];
 }
 
 const ALL_PAGES = [
+  { id:'home',     label:'Dashboard',        icon:'🏠', section:'Home'       },
   { id:'census',   label:'Patient Census',   icon:'👥', section:'Operations' },
   { id:'visits',   label:'Visit Schedule',   icon:'📅', section:'Operations' },
   { id:'authtrack',label:'Auth Tracker',     icon:'📑', section:'Operations' },
@@ -166,6 +167,7 @@ function TopBar({ title, teamMeta }) {
 
 // ── Page titles ────────────────────────────────────────────────────────────
 const PAGE_TITLES = {
+  home:     'Dashboard',
   census:   'Patient Census',
   visits:   'Visit Schedule',
   authtrack:'Authorization Tracker',
@@ -179,7 +181,7 @@ export default function MissionControlApp() {
   const { profile, role, team, signOut } = useAuth();
   const teamMeta = TEAM_META[team] || TEAM_META.auth;
   const allowedPages = getAllowedPages(role, team);
-  const defaultPage  = allowedPages[0] || 'census';
+  const defaultPage  = 'home';
   const [currentPage, setCurrentPage] = useState(defaultPage);
 
   // Guard — if somehow user lands here without a valid team, show a friendly error
@@ -205,6 +207,10 @@ export default function MissionControlApp() {
 
   const renderPage = () => {
     switch (currentPage) {
+      case 'home':
+        if (team === 'auth')       return <AuthDashboard />;
+        if (team === 'care_coord') return <CareCoordDashboard />;
+        return <AuthDashboard />;
       case 'census':    return <PatientCensus />;
       case 'visits':    return <VisitSchedule />;
       case 'authtrack': return <AuthTracker />;
