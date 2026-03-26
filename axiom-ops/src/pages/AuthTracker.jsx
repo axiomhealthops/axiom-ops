@@ -306,12 +306,13 @@ function parseCarlaFormat(XLSX, arrayBuffer, assignTo) {
       if (!row[0].includes(',') || row[0] === 'Patient Name ') continue;
       // cols: name, address(zip:city), disc, ins_code, soc_date, pcp, status, comments
       const insCode = String(row[3]||'').trim();
-      const payer = resolveInsCode(insCode);
-      // Extract region from address zip code (first 2 digits) - but Carla tracks by insurance code
-      // region embedded in ins code: HUG = G, CPA = A, CPV = V
+      const rawPayer = resolveInsCode(insCode);
+      // If payer resolved to a single letter, it's actually a region code — mark as Unknown
+      const payer = rawPayer.length <= 2 ? 'Unknown' : rawPayer;
+      // Extract region from insurance code suffix: HUG→G, CPA→A, CPV→V
       let region = '';
-      const rc = insCode.replace(/^[A-Z]+/i,'').replace(/[^A-Z0-9]/gi,'');
-      if (rc && rc.length <= 3) region = rc.toUpperCase();
+      const rc = insCode.replace(/^[A-Za-z]{2,3}/, '').replace(/[^A-Z0-9]/gi,'').toUpperCase();
+      if (rc && rc.length <= 3 && rc !== payer.toUpperCase()) region = rc;
       allRecords.push({
         patient_name: row[0].trim(),
         payer,
@@ -851,16 +852,26 @@ export default function AuthTracker() {
   }), [active]);
 
   // Payer breakdown
+  const KNOWN_PAYERS = new Set(['Humana','CarePlus','Medicare/Devoted','FL Health Care Plans',
+    'Aetna','Cigna','HealthFirst','Simply','Medicare','Other','Unknown']);
+
   const payerBreakdown = useMemo(() => {
     const map = {};
     active.forEach(r => {
-      if (!map[r.payer]) map[r.payer] = { total:0, noAuth:0, critical:0, expiring:0 };
-      map[r.payer].total++;
-      if (!r.auth_number) map[r.payer].noAuth++;
-      if (['expiring_critical','visits_low'].includes(r.priority)) map[r.payer].critical++;
-      if (r.priority === 'expiring_soon') map[r.payer].expiring++;
+      // Normalize payer — single letters are regions, not payers
+      const payer = (!r.payer || r.payer.length <= 2) ? 'Unknown'
+        : KNOWN_PAYERS.has(r.payer) ? r.payer
+        : r.payer.length > 2 ? r.payer : 'Unknown';
+      if (!map[payer]) map[payer] = { total:0, noAuth:0, critical:0, expiring:0 };
+      map[payer].total++;
+      if (!r.auth_number) map[payer].noAuth++;
+      if (['expiring_critical','visits_low'].includes(r.priority)) map[payer].critical++;
+      if (r.priority === 'expiring_soon') map[payer].expiring++;
     });
-    return Object.entries(map).sort(([,a],[,b]) => b.total - a.total);
+    // Only show known payers + anything with 5+ patients
+    return Object.entries(map)
+      .filter(([p, d]) => KNOWN_PAYERS.has(p) || d.total >= 5)
+      .sort(([,a],[,b]) => b.total - a.total);
   }, [active]);
 
   const startEdit = (rec) => {
@@ -1009,6 +1020,7 @@ export default function AuthTracker() {
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:14 }}>
             {[
               {label:'Auth Status',key:'auth_status',type:'select',opts:['active','pending','approved','denied','expired','renewal_submitted']},
+              {label:'Payer',key:'payer',type:'select_payer'},
               {label:'Assigned To',key:'assigned_to',type:'select_team'},
               {label:'PCP',key:'pcp',type:'text',ph:'e.g. conviva, centerwell'},
               {label:'Date Submitted',key:'date_submitted',type:'date'},
@@ -1018,6 +1030,7 @@ export default function AuthTracker() {
               <div key={f.key}>
                 <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>{f.label}</label>
                 {f.type==='select'?<select value={editForm[f.key]||''} onChange={e=>setField(f.key,e.target.value)} style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}>{f.opts.map(o=><option key={o} value={o}>{o}</option>)}</select>
+                :f.type==='select_payer'?<select value={editForm[f.key]||''} onChange={e=>setField(f.key,e.target.value)} style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}><option value="">Select payer...</option>{['Humana','CarePlus','Medicare/Devoted','FL Health Care Plans','Aetna','Cigna','HealthFirst','Simply','Medicare','Other'].map(o=><option key={o} value={o}>{o}</option>)}</select>
                 :f.type==='select_team'?<select value={editForm[f.key]||''} onChange={e=>setField(f.key,e.target.value)} style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}><option value="">Unassigned</option>{TEAM_MEMBERS.map(n=><option key={n} value={n}>{n}</option>)}</select>
                 :<input type={f.type} value={editForm[f.key]||''} placeholder={f.ph} onChange={e=>setField(f.key,e.target.value)} style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', color:B.black, boxSizing:'border-box' }} />}
               </div>
@@ -1046,68 +1059,111 @@ export default function AuthTracker() {
       {/* Dashboard */}
       {view==='dashboard' && (
         <>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:10, marginBottom:20 }}>
+          {/* KPI Row */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:10, marginBottom:24 }}>
             {[
-              {label:'No Auth',count:kpis.noAuth,color:B.danger,bg:'#FEF2F2',border:'#FECACA',f:'no_auth'},
-              {label:'Critical',count:kpis.critical,color:'#EA580C',bg:'#FFF7ED',border:'#FED7AA',f:'expiring_critical'},
-              {label:'Follow-Up Due',count:kpis.followup,color:B.purple,bg:'#F5F3FF',border:'#DDD6FE',f:'followup_due'},
-              {label:'Expiring ≤30d',count:kpis.expiring,color:B.yellow,bg:'#FFFBEB',border:'#FDE68A',f:'expiring_soon'},
-              {label:'Expired',count:kpis.expired,color:'#6B7280',bg:'#F9FAFB',border:'#E5E7EB',f:'expired'},
-              {label:'Active',count:kpis.total,color:B.green,bg:'#F0FDF4',border:'#BBF7D0',f:'all'},
-            ].map(m=>(
-              <div key={m.label} onClick={()=>{setFilterPriority(m.f==='all'?'all':m.f);if(m.f==='expired')setShowExpired(true);setView('list');}}
-                style={{ background:m.bg, border:`1px solid ${m.border}`, borderRadius:12, padding:'12px', textAlign:'center', cursor:'pointer' }}>
-                <div style={{ fontSize:26, fontWeight:800, color:m.color, fontFamily:'monospace', lineHeight:1 }}>{m.count}</div>
-                <div style={{ fontSize:10, color:m.color, textTransform:'uppercase', letterSpacing:'0.06em', marginTop:4 }}>{m.label}</div>
+              { label:'No Auth on File',  count:kpis.noAuth,    color:B.danger,  bg:'#FEF2F2', border:'#FECACA', icon:'🚨', f:'no_auth',           desc:'Active — no auth number' },
+              { label:'Critical',         count:kpis.critical,  color:'#EA580C', bg:'#FFF7ED', border:'#FED7AA', icon:'⚠️', f:'expiring_critical',  desc:'Expiring ≤7d or ≤3 visits' },
+              { label:'Follow-Up Due',    count:kpis.followup,  color:B.purple,  bg:'#F5F3FF', border:'#DDD6FE', icon:'📞', f:'followup_due',       desc:'Today + overdue' },
+              { label:'Expiring ≤30d',    count:kpis.expiring,  color:B.yellow,  bg:'#FFFBEB', border:'#FDE68A', icon:'🕐', f:'expiring_soon',      desc:'Needs renewal attention' },
+              { label:'Expired',          count:kpis.expired,   color:'#9CA3AF', bg:'#F9FAFB', border:'#E5E7EB', icon:'⏰', f:'expired',            desc:'Auth past end date' },
+              { label:'Active',           count:kpis.total,     color:B.green,   bg:'#F0FDF4', border:'#BBF7D0', icon:'✅', f:'all',                desc:'Total active patients' },
+            ].map(m => (
+              <div key={m.label} onClick={()=>{ setFilterPriority(m.f==='all'?'all':m.f); if(m.f==='expired') setShowExpired(true); setView('list'); }}
+                style={{ background:m.bg, border:`1.5px solid ${m.border}`, borderRadius:14, padding:'16px 14px', textAlign:'center', cursor:'pointer', transition:'transform 0.1s', position:'relative', overflow:'hidden' }}>
+                <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:m.color, borderRadius:'14px 14px 0 0' }} />
+                <div style={{ fontSize:11, marginBottom:6 }}>{m.icon}</div>
+                <div style={{ fontSize:30, fontWeight:800, color:m.color, fontFamily:"'DM Mono',monospace", lineHeight:1, marginBottom:5 }}>{m.count}</div>
+                <div style={{ fontSize:11, fontWeight:700, color:m.color, marginBottom:3 }}>{m.label}</div>
+                <div style={{ fontSize:10, color:B.lightGray, lineHeight:1.3 }}>{m.desc}</div>
               </div>
             ))}
           </div>
 
-          {/* Team queue cards */}
-          <div style={{ marginBottom:20 }}>
-            <div style={{ fontSize:14, fontWeight:700, color:B.black, marginBottom:12 }}>👥 Team Queues</div>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
-              {memberMetrics.map(m=>(
-                <div key={m.name} style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:14, padding:'16px 18px', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                      <div style={{ width:32, height:32, borderRadius:'50%', background:'#FFF5F2', border:`2px solid ${B.red}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, color:B.red }}>{m.name.split(' ').map(n=>n[0]).join('')}</div>
-                      <div style={{ fontSize:13, fontWeight:700, color:B.black }}>{m.name.split(' ')[0]}</div>
-                    </div>
-                    <button onClick={()=>{setFilterAssignee(m.name);setView('list');}} style={{ background:'none', border:`1px solid ${B.border}`, borderRadius:6, color:B.gray, padding:'4px 10px', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>View Queue →</button>
-                  </div>
-                  <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:6 }}>
-                    {[{label:'Total',value:m.total,color:B.black},{label:'No Auth',value:m.noAuth,color:m.noAuth>0?B.danger:B.green},{label:'Expiring',value:m.expiring,color:m.expiring>0?B.yellow:B.green},{label:'Call Today',value:m.followToday,color:m.followToday>0?B.purple:B.green}].map(s=>(
-                      <div key={s.label} style={{ textAlign:'center', padding:'8px 4px', background:B.bg, borderRadius:8 }}>
-                        <div style={{ fontSize:20, fontWeight:800, color:s.color, fontFamily:'monospace' }}>{s.value}</div>
-                        <div style={{ fontSize:9, color:B.lightGray, textTransform:'uppercase', letterSpacing:'0.06em' }}>{s.label}</div>
+          {/* Team Queues */}
+          <div style={{ marginBottom:24 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:B.black, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
+              👥 Team Queues
+              <span style={{ fontSize:11, color:B.lightGray, fontWeight:400 }}>Click "View Queue" to filter patient list by team member</span>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:14 }}>
+              {memberMetrics.map(m => {
+                const hasIssues = m.critical > 0 || m.followToday > 0;
+                return (
+                  <div key={m.name} style={{ background:B.card, border:`1.5px solid ${hasIssues?'#FED7AA':B.border}`, borderRadius:16, padding:'18px 20px', boxShadow:'0 2px 8px rgba(0,0,0,0.04)' }}>
+                    {/* Header */}
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                        <div style={{ width:36, height:36, borderRadius:'50%', background:'#FFF5F2', border:`2px solid ${B.red}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800, color:B.red, flexShrink:0 }}>{m.name.split(' ').map(n=>n[0]).join('')}</div>
+                        <div>
+                          <div style={{ fontSize:14, fontWeight:800, color:B.black }}>{m.name.split(' ')[0]} {m.name.split(' ')[1]}</div>
+                          <div style={{ fontSize:10, color:B.lightGray }}>Auth Team</div>
+                        </div>
                       </div>
-                    ))}
+                      <button onClick={()=>{ setFilterAssignee(m.name); setView('list'); }} style={{ background:'none', border:`1px solid ${B.border}`, borderRadius:8, color:B.gray, padding:'5px 12px', fontSize:11, cursor:'pointer', fontFamily:'inherit', fontWeight:600 }}>View Queue →</button>
+                    </div>
+
+                    {/* Stats grid */}
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8 }}>
+                      {[
+                        { label:'Total',      value:m.total,      color:B.black,  bg:'#F9FAFB' },
+                        { label:'No Auth',    value:m.noAuth,     color:m.noAuth>0?B.danger:B.green,    bg:m.noAuth>0?'#FEF2F2':'#F0FDF4' },
+                        { label:'Expiring',   value:m.expiring,   color:m.expiring>0?B.yellow:B.green,  bg:m.expiring>0?'#FFFBEB':'#F0FDF4' },
+                        { label:'Call Today', value:m.followToday,color:m.followToday>0?B.purple:B.green,bg:m.followToday>0?'#F5F3FF':'#F0FDF4' },
+                      ].map(s => (
+                        <div key={s.label} style={{ textAlign:'center', padding:'10px 6px', background:s.bg, borderRadius:10 }}>
+                          <div style={{ fontSize:22, fontWeight:800, color:s.color, fontFamily:"'DM Mono',monospace", lineHeight:1 }}>{s.value}</div>
+                          <div style={{ fontSize:9, color:B.lightGray, textTransform:'uppercase', letterSpacing:'0.07em', marginTop:4 }}>{s.label}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Alert banners */}
+                    {m.followToday > 0 && <div style={{ marginTop:10, padding:'6px 10px', background:'#F5F3FF', borderRadius:8, fontSize:11, color:B.purple, fontWeight:700 }}>📞 {m.followToday} follow-up{m.followToday>1?'s':''} due today</div>}
+                    {m.critical > 0 && <div style={{ marginTop:6, padding:'6px 10px', background:'#FFF7ED', borderRadius:8, fontSize:11, color:'#EA580C', fontWeight:700 }}>⚠️ {m.critical} critical — expiring or visits low</div>}
+                    {m.total === 0 && <div style={{ marginTop:10, fontSize:11, color:B.lightGray, fontStyle:'italic', textAlign:'center' }}>No patients assigned</div>}
                   </div>
-                  {m.total===0&&<div style={{ marginTop:8, fontSize:11, color:B.lightGray, fontStyle:'italic' }}>No patients assigned</div>}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
-          {/* Payer breakdown */}
-          <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:14, padding:'18px 20px' }}>
-            <div style={{ fontSize:14, fontWeight:700, color:B.black, marginBottom:14 }}>🏥 Auth Status by Payer</div>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:8 }}>
-              {payerBreakdown.map(([payer,data])=>{
-                const col=PAYER_COLORS[payer]||B.gray;
-                const pct=data.total>0?Math.round((data.total-data.noAuth)/data.total*100):0;
+          {/* Payer Breakdown */}
+          <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:16, padding:'20px 24px', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
+            <div style={{ fontSize:13, fontWeight:700, color:B.black, marginBottom:16 }}>🏥 Auth Coverage by Payer</div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+              {payerBreakdown.map(([payer, data]) => {
+                const col = PAYER_COLORS[payer] || B.gray;
+                const covered = data.total - data.noAuth;
+                const pct = data.total > 0 ? Math.round(covered / data.total * 100) : 0;
+                const urgentColor = data.critical > 0 ? B.danger : data.expiring > 0 ? B.yellow : B.green;
                 return (
-                  <div key={payer} onClick={()=>{setFilterPayer(payer);setView('list');}} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', background:B.bg, borderRadius:8, cursor:'pointer', border:`1px solid ${B.border}` }}>
-                    <div style={{ width:8, height:40, background:col, borderRadius:2, flexShrink:0 }} />
+                  <div key={payer} onClick={()=>{ setFilterPayer(payer); setView('list'); }}
+                    style={{ display:'flex', alignItems:'center', gap:14, padding:'12px 16px', background:'#FAFAFA', borderRadius:12, cursor:'pointer', border:`1px solid ${B.border}`, transition:'background 0.1s' }}>
+                    {/* Color bar */}
+                    <div style={{ width:4, height:44, background:col, borderRadius:2, flexShrink:0 }} />
+                    {/* Info */}
                     <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:12, fontWeight:600, color:B.black, marginBottom:4 }}>{payer}</div>
-                      <div style={{ height:4, background:'rgba(0,0,0,0.08)', borderRadius:2 }}><div style={{ height:'100%', width:`${pct}%`, background:col, borderRadius:2 }} /></div>
-                      <div style={{ fontSize:10, color:B.lightGray, marginTop:3 }}>{pct}% have auth · {data.expiring} expiring soon</div>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:6 }}>
+                        <div style={{ fontSize:13, fontWeight:700, color:B.black }}>{payer}</div>
+                        <div style={{ fontSize:13, fontWeight:800, color:col, fontFamily:"'DM Mono',monospace" }}>{data.total}</div>
+                      </div>
+                      {/* Progress bar */}
+                      <div style={{ height:5, background:'rgba(0,0,0,0.07)', borderRadius:3, marginBottom:5 }}>
+                        <div style={{ height:'100%', width:`${pct}%`, background:col, borderRadius:3 }} />
+                      </div>
+                      {/* Sub-stats */}
+                      <div style={{ display:'flex', gap:12, fontSize:10 }}>
+                        <span style={{ color:B.green, fontWeight:600 }}>✓ {covered} with auth</span>
+                        {data.noAuth > 0 && <span style={{ color:B.danger, fontWeight:700 }}>⚠ {data.noAuth} no auth</span>}
+                        {data.expiring > 0 && <span style={{ color:B.yellow, fontWeight:600 }}>🕐 {data.expiring} expiring</span>}
+                        {data.critical > 0 && <span style={{ color:'#EA580C', fontWeight:700 }}>🔴 {data.critical} critical</span>}
+                      </div>
                     </div>
-                    <div style={{ textAlign:'right', flexShrink:0 }}>
-                      <div style={{ fontSize:14, fontWeight:800, color:col, fontFamily:'monospace' }}>{data.total}</div>
-                      {data.noAuth>0&&<div style={{ fontSize:10, color:B.danger, fontWeight:700 }}>{data.noAuth} no auth</div>}
+                    {/* Coverage % */}
+                    <div style={{ textAlign:'center', flexShrink:0, minWidth:44 }}>
+                      <div style={{ fontSize:18, fontWeight:800, color:pct>=80?B.green:pct>=50?B.yellow:B.danger, fontFamily:"'DM Mono',monospace" }}>{pct}%</div>
+                      <div style={{ fontSize:9, color:B.lightGray }}>covered</div>
                     </div>
                   </div>
                 );
@@ -1116,7 +1172,6 @@ export default function AuthTracker() {
           </div>
         </>
       )}
-
       {/* Calendar */}
       {view==='calendar' && (
         <>
@@ -1189,6 +1244,13 @@ export default function AuthTracker() {
               <option value="all">All Payers</option>
               <option value="Humana">Humana</option>
               <option value="CarePlus">CarePlus</option>
+              <option value="Medicare/Devoted">Medicare/Devoted</option>
+              <option value="FL Health Care Plans">FL Health Care Plans</option>
+              <option value="Aetna">Aetna</option>
+              <option value="Cigna">Cigna</option>
+              <option value="HealthFirst">HealthFirst</option>
+              <option value="Simply">Simply</option>
+              <option value="Unknown">⚠ Unknown Payer</option>
             </select>
             <select value={filterRegion} onChange={e=>setFilterRegion(e.target.value)} style={{ padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', color:B.black, outline:'none', background:'#fff' }}>
               <option value="all">All Regions</option>
@@ -1217,7 +1279,12 @@ export default function AuthTracker() {
               return (
                 <div key={r.id} style={{ display:'grid', gridTemplateColumns:'180px 100px 55px 80px 120px 60px 50px 50px 80px 80px 1fr', padding:'8px 14px', borderBottom:'1px solid #FAF4F2', alignItems:'center', background:['expiring_critical','visits_low','no_auth'].includes(r.priority)?'#FFFBEB':r.priority==='followup_due'?'#FFF5F2':'transparent' }}>
                   <div style={{ fontSize:12, fontWeight:600, color:B.black, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.patient_name}</div>
-                  <div style={{ fontSize:11, fontWeight:600, color:payCol, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.payer}</div>
+                  <div style={{ fontSize:11, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                    {r.payer === 'Unknown'
+                      ? <span style={{ color:B.orange, background:'#FFF7ED', border:'1px solid #FED7AA', borderRadius:6, padding:'2px 6px', fontSize:10, fontWeight:700, cursor:'pointer' }} onClick={()=>startEdit(r)}>⚠ Set Payer</span>
+                      : <span style={{ color:payCol }}>{r.payer}</span>
+                    }
+                  </div>
                   <div style={{ fontSize:11, color:B.gray }}>{r.region}</div>
                   <div style={{ fontSize:10, color:B.gray, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.assigned_to?r.assigned_to.split(' ')[0]:<span style={{ color:B.lightGray, fontStyle:'italic' }}>—</span>}</div>
                   <div style={{ fontSize:11, color:r.auth_number?B.black:B.lightGray, fontFamily:'monospace' }}>{r.auth_number||'—'}</div>
