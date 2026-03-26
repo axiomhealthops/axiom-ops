@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useOpsData } from '../hooks/useOpsData';
 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10', orange:'#E8763A',
@@ -22,11 +23,21 @@ const STATUS_META = {
   discharge:           { label:'Discharge',           color:'#BBA8A4',bg:'#FAFAFA', border:'#E5E7EB', icon:'📤', desc:'Discharged' },
 };
 
-export default function PatientCensus({ censusData, hasCensus, CFG }) {
+const CFG = { authRiskVisitsPerWeek: 3, avgReimbursement: 90 };
+
+export default function PatientCensus() {
+  const { censusData, hasCensus, loading } = useOpsData();
+
   const [selectedRegion, setSelectedRegion] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [search, setSearch] = useState('');
-  const [view, setView] = useState('summary'); // 'summary' | 'patients'
+  const [view, setView] = useState('summary');
+
+  if (loading) return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:60, color:B.lightGray, fontFamily:"'DM Sans', sans-serif" }}>
+      Loading census data...
+    </div>
+  );
 
   const regionKeys = hasCensus ? Object.keys(censusData.byRegion||{}).sort() : [];
   const displayCounts = hasCensus && selectedRegion !== 'all' && censusData.byRegion?.[selectedRegion]
@@ -39,7 +50,6 @@ export default function PatientCensus({ censusData, hasCensus, CFG }) {
     ? censusData.byRegion[selectedRegion].activeCensus
     : (censusData?.activeCensus || 0);
 
-  // Patient list for drill-down
   const allPatients = hasCensus ? censusData.patients || [] : [];
   const filteredPatients = allPatients
     .filter(p => selectedRegion === 'all' || p.region === selectedRegion)
@@ -55,6 +65,11 @@ export default function PatientCensus({ censusData, hasCensus, CFG }) {
           {hasCensus && (
             <p style={{ fontSize:13, color:B.gray, margin:0 }}>
               {censusData.total} total patients · <span style={{ color:B.green, fontWeight:700 }}>{censusData.activeCensus} active census</span> · Updated {censusData.lastUpdated}
+            </p>
+          )}
+          {hasCensus && (
+            <p style={{ fontSize:11, color:B.lightGray, margin:'4px 0 0' }}>
+              Live data — updates automatically when director uploads a new census
             </p>
           )}
         </div>
@@ -74,26 +89,24 @@ export default function PatientCensus({ censusData, hasCensus, CFG }) {
         <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:16, padding:'48px', textAlign:'center' }}>
           <div style={{ fontSize:36, marginBottom:12 }}>👥</div>
           <div style={{ fontSize:16, fontWeight:700, color:B.black, marginBottom:8 }}>No census data loaded</div>
-          <div style={{ fontSize:13, color:B.gray }}>Go to <strong>Data Uploads</strong> and upload your Pariox Patient Census report</div>
+          <div style={{ fontSize:13, color:B.gray }}>Your director will upload the Pariox Patient Census — it will appear here automatically</div>
         </div>
       ) : (
         <>
-          {/* Region + status filters */}
+          {/* Region filters */}
           <div style={{ display:'flex', gap:10, marginBottom:20, flexWrap:'wrap', alignItems:'center' }}>
-            <div style={{ display:'flex', gap:5, alignItems:'center', flexWrap:'wrap' }}>
-              <span style={{ fontSize:11, color:B.lightGray, marginRight:2 }}>Region:</span>
-              {['all', ...regionKeys].map(r => (
-                <button key={r} onClick={() => setSelectedRegion(r)} style={{
-                  padding:'5px 10px', borderRadius:6, border:`1px solid ${selectedRegion===r ? B.red : B.border}`,
-                  background: selectedRegion===r ? '#FFF5F2' : 'transparent',
-                  color: selectedRegion===r ? B.red : B.gray,
-                  fontSize:11, fontWeight: selectedRegion===r ? 700 : 400, cursor:'pointer', fontFamily:'inherit',
-                }}>{r === 'all' ? 'All' : r}</button>
-              ))}
-            </div>
+            <span style={{ fontSize:11, color:B.lightGray, marginRight:2 }}>Region:</span>
+            {['all', ...regionKeys].map(r => (
+              <button key={r} onClick={() => setSelectedRegion(r)} style={{
+                padding:'5px 10px', borderRadius:6, border:`1px solid ${selectedRegion===r ? B.red : B.border}`,
+                background: selectedRegion===r ? '#FFF5F2' : 'transparent',
+                color: selectedRegion===r ? B.red : B.gray,
+                fontSize:11, fontWeight: selectedRegion===r ? 700 : 400, cursor:'pointer', fontFamily:'inherit',
+              }}>{r === 'all' ? 'All' : r}</button>
+            ))}
           </div>
 
-          {/* Active census hero */}
+          {/* Hero stats */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14, marginBottom:20 }}>
             {[
               { label:'Active Census', value:displayActive, sub:'Active + Active-Auth Pending', color:B.green, bg:'#F0FDF4', border:'#BBF7D0' },
@@ -110,7 +123,6 @@ export default function PatientCensus({ censusData, hasCensus, CFG }) {
 
           {view === 'summary' && (
             <>
-              {/* Status grid */}
               <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:20 }}>
                 {Object.entries(STATUS_META).map(([key, meta]) => {
                   const count = (displayCounts?.[key]) || 0;
@@ -132,14 +144,13 @@ export default function PatientCensus({ censusData, hasCensus, CFG }) {
                 })}
               </div>
 
-              {/* Revenue impact */}
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
                 {[
                   { label:'🔒 Auth Revenue Risk', count:(displayCounts?.auth_pending||0)+(displayCounts?.active_auth_pending||0), color:B.yellow, bg:'#FFFBEB', border:'#FDE68A', desc:'patients blocked' },
                   { label:'⏸️ On Hold Paused Revenue', count:(displayCounts?.on_hold||0)+(displayCounts?.on_hold_facility||0)+(displayCounts?.on_hold_pt||0)+(displayCounts?.on_hold_md||0), color:'#6B7280', bg:'#F9FAFB', border:'#E5E7EB', desc:'patients paused' },
                   { label:'📅 SOC Ready to Start', count:displayCounts?.soc_pending||0, color:B.blue, bg:'#EFF6FF', border:'#BFDBFE', desc:'awaiting scheduling' },
                 ].map(r => {
-                  const weeklyRev = r.count * (CFG?.authRiskVisitsPerWeek||3) * (CFG?.avgReimbursement||90);
+                  const weeklyRev = r.count * CFG.authRiskVisitsPerWeek * CFG.avgReimbursement;
                   return (
                     <div key={r.label} style={{ background:r.bg, border:`1px solid ${r.border}`, borderRadius:12, padding:'16px 18px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                       <div>
@@ -157,7 +168,6 @@ export default function PatientCensus({ censusData, hasCensus, CFG }) {
 
           {view === 'patients' && (
             <>
-              {/* Search + status filter */}
               <div style={{ display:'flex', gap:10, marginBottom:14, flexWrap:'wrap', alignItems:'center' }}>
                 <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search patient name..."
                   style={{ padding:'8px 14px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13,
@@ -171,28 +181,16 @@ export default function PatientCensus({ censusData, hasCensus, CFG }) {
                 <span style={{ fontSize:12, color:B.lightGray, marginLeft:'auto' }}>{filteredPatients.length} patients</span>
               </div>
 
-              {/* Patient table */}
               <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:14, overflow:'hidden', boxShadow:'0 1px 4px rgba(139,26,16,0.06)' }}>
-                <div style={{ display:'grid', gridTemplateColumns:'220px 70px 150px 100px 80px 1fr', padding:'9px 18px', background:'#FBF7F6', borderBottom:`1px solid ${B.border}` }}>
-                  {['Patient','Region','Status','Payer','Disc','Days in Status'].map(h => (
+                <div style={{ display:'grid', gridTemplateColumns:'220px 70px 150px 100px 1fr', padding:'9px 18px', background:'#FBF7F6', borderBottom:`1px solid ${B.border}` }}>
+                  {['Patient','Region','Status','Payer','Days in Status'].map(h => (
                     <div key={h} style={{ fontSize:10, fontWeight:700, color:B.lightGray, textTransform:'uppercase', letterSpacing:'0.08em' }}>{h}</div>
                   ))}
                 </div>
                 {filteredPatients.slice(0,100).map((p, i) => {
                   const meta = STATUS_META[p.status] || STATUS_META.active;
-                  const payer = (() => {
-                    const r = (p.ref||'').toUpperCase();
-                    if (r.startsWith('HU')) return 'Humana';
-                    if (r.startsWith('CP')) return 'CarePlus';
-                    if (r.startsWith('MED')||r.startsWith('DH')) return 'Devoted';
-                    if (r.startsWith('FHC')) return 'FL Health Care';
-                    if (r.startsWith('AM')||r.startsWith('AC')) return 'Aetna';
-                    if (r.startsWith('CIG')) return 'Cigna';
-                    if (r.startsWith('HF')) return 'HealthFirst';
-                    return 'Other';
-                  })();
                   return (
-                    <div key={i} style={{ display:'grid', gridTemplateColumns:'220px 70px 150px 100px 80px 1fr', padding:'9px 18px', borderBottom:`1px solid #FAF4F2`, alignItems:'center' }}>
+                    <div key={i} style={{ display:'grid', gridTemplateColumns:'220px 70px 150px 100px 1fr', padding:'9px 18px', borderBottom:`1px solid #FAF4F2`, alignItems:'center' }}>
                       <div style={{ fontSize:12, fontWeight:600, color:B.black }}>{p.name}</div>
                       <div style={{ fontSize:12, color:B.gray }}>{p.region}</div>
                       <div>
@@ -200,9 +198,8 @@ export default function PatientCensus({ censusData, hasCensus, CFG }) {
                           {meta.icon} {meta.label}
                         </span>
                       </div>
-                      <div style={{ fontSize:11, color:B.gray }}>{payer}</div>
-                      <div style={{ fontSize:10, color:B.lightGray }}>{p.disc?.replace('LYMPHEDEMA ','')}</div>
-                      <div style={{ fontSize:11, color: (p.daysInStatus||0) > 30 ? B.danger : (p.daysInStatus||0) > 14 ? B.yellow : B.lightGray, fontWeight:(p.daysInStatus||0) > 14 ? 700 : 400 }}>
+                      <div style={{ fontSize:11, color:B.gray }}>{p.payer}</div>
+                      <div style={{ fontSize:11, color: (p.daysInStatus||0) > 30 ? B.danger : (p.daysInStatus||0) > 14 ? B.yellow : B.lightGray }}>
                         {p.daysInStatus != null ? `${p.daysInStatus}d` : '—'}
                       </div>
                     </div>
