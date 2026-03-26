@@ -57,10 +57,26 @@ export default function Login() {
       <div style={{ position: 'absolute', top: '40%', left: '10%', width: 120, height: 120, borderRadius: '50%', background: 'rgba(232,118,58,0.05)' }} />
 
       <div style={{ width: '100%', maxWidth: 420, padding: '0 24px', position: 'relative', zIndex: 1 }}>
-        {/* Logo */}
+        {/* Logo lockup */}
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
-          <img src="/logo.png" alt="AxiomHealth Management" style={{ height: 64, objectFit: 'contain' }} />
-          <div style={{ fontSize: 12, color: '#BBA8A4', letterSpacing: '0.15em', textTransform: 'uppercase', marginTop: 12 }}>Care Coordination Portal</div>
+          {/* Icon mark */}
+          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 64, height: 64, borderRadius: 18,
+            background: 'linear-gradient(135deg, #D94F2B, #8B1A10)',
+            boxShadow: '0 8px 24px rgba(217,79,43,0.35)',
+            marginBottom: 14 }}>
+            <svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M17 4L6 10V18C6 23.5 11 28.5 17 30C23 28.5 28 23.5 28 18V10L17 4Z" fill="rgba(255,255,255,0.15)" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/>
+              <path d="M12 17L15.5 20.5L22 14" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          {/* Wordmark */}
+          <div style={{ fontSize: 20, fontWeight: 800, color: '#1A1A1A', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
+            AxiomHealth Management
+          </div>
+          <div style={{ fontSize: 11, color: '#BBA8A4', letterSpacing: '0.15em', textTransform: 'uppercase', marginTop: 6 }}>
+            Care Coordination Portal
+          </div>
         </div>
 
         {/* Card */}
