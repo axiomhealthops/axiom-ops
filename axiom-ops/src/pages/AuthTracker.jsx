@@ -149,86 +149,509 @@ function parseAuthExcel(XLSX, arrayBuffer, payer) {
 }
 
 // ── Import Panel Component ────────────────────────────────────
+const IMPORT_CONFIGS = [
+  { key:'ethel_humana',   label:"Ethel — Humana",               assignTo:'Ethel Camposano', color:'#0066CC', hint:'HUMANA_AUTH_TRACKING.xlsx' },
+  { key:'ethel_careplus', label:"Ethel — CarePlus",              assignTo:'Ethel Camposano', color:'#009B77', hint:'CAREPLUS_AUTH_TRACKING.xlsx' },
+  { key:'carla',          label:"Carla — Weekly Auth Report",    assignTo:'Carla Smith',     color:'#D94F2B', hint:"Carla_s_Weekly_Auth_Report.xlsx" },
+  { key:'carla_multi',    label:"Carla — Multi-Payer (CP/FHCP)", assignTo:'Carla Smith',     color:'#B45309', hint:'CP_SH_FHCP_DE_AUTH_TRACKING_2024.xlsx' },
+  { key:'gerilyn',        label:"Gerilyn — Humana/CarePlus",     assignTo:'Gerilyn Bayson',  color:'#7C3AED', hint:'HUMANA_A_G_M_CAREPLUS_G_M-GERILYN.xlsx' },
+];
+
+// Insurance code → payer name mapping for Carla's file
+const INS_CODE_MAP = {
+  'HUG':'Humana','HUM':'Humana','HUMA':'Humana','HUMG':'Humana','HUMM':'Humana',
+  'HUB':'Humana','HUV':'Humana','HUN':'Humana','HUT':'Humana','HUI':'Humana',
+  'HUJ':'Humana','HUC':'Humana','HUMA':'Humana','HUMANA':'Humana',
+  'HumA':'Humana','HumG':'Humana','HumV':'Humana','HumM':'Humana','HumN':'Humana',
+  'CPA':'CarePlus','CPB':'CarePlus','CPC':'CarePlus','CPG':'CarePlus','CPH':'CarePlus',
+  'CPI':'CarePlus','CPJ':'CarePlus','CPM':'CarePlus','CPN':'CarePlus','CPT':'CarePlus',
+  'CPV':'CarePlus','CAREPLUS':'CarePlus','CAREP':'CarePlus',
+  'ACA':'Aetna','ACB':'Aetna','ACG':'Aetna','ACH':'Aetna','ACJ':'Aetna',
+  'ACN':'Aetna','ACT':'Aetna','ACV':'Aetna','AETNA':'Aetna',
+  'FHCC':'FL Health Care Plans','FHCG':'FL Health Care Plans','FHCA':'FL Health Care Plans',
+  'FHCP':'FL Health Care Plans',
+  'DHA':'Medicare/Devoted','DHG':'Medicare/Devoted','DHV':'Medicare/Devoted',
+  'DEVOTED':'Medicare/Devoted','DE':'Medicare/Devoted',
+  'SV':'Simply','SH':'Simply','SIMPLY':'Simply',
+  'HFA':'HealthFirst','HFG':'HealthFirst','HEALTHFIRST':'HealthFirst','HF':'HealthFirst',
+  'CIG':'Cigna','CIGNA':'Cigna',
+  'MED':'Medicare','MEDICARE':'Medicare',
+};
+
+function resolveRegion(code) {
+  if (!code) return '';
+  const s = String(code).trim();
+  // "A - HUMANA" → "A", "G - CAREPLUS" → "G"
+  const m = s.match(/^([A-Z0-9\-V]+)\s*[-–]/i);
+  if (m) return m[1].trim();
+  // Single letter/code
+  if (s.length <= 3) return s.toUpperCase();
+  return s;
+}
+
+function resolveInsCode(code) {
+  if (!code) return 'Other';
+  const s = String(code).trim();
+  // Direct lookup
+  if (INS_CODE_MAP[s]) return INS_CODE_MAP[s];
+  // Case-insensitive
+  const upper = s.toUpperCase();
+  const found = Object.entries(INS_CODE_MAP).find(([k]) => k.toUpperCase() === upper);
+  if (found) return found[1];
+  // Prefix match
+  if (upper.startsWith('HU') || upper.startsWith('HUM')) return 'Humana';
+  if (upper.startsWith('CP') || upper.startsWith('CAR')) return 'CarePlus';
+  if (upper.startsWith('AC') || upper.startsWith('AET')) return 'Aetna';
+  if (upper.startsWith('FHC')) return 'FL Health Care Plans';
+  if (upper.startsWith('DH') || upper.startsWith('DEV')) return 'Medicare/Devoted';
+  if (upper.startsWith('SV') || upper.startsWith('SIM')) return 'Simply';
+  if (upper.startsWith('HF') || upper.startsWith('HEALTH')) return 'HealthFirst';
+  if (upper.startsWith('CIG')) return 'Cigna';
+  if (upper.startsWith('MED')) return 'Medicare';
+  return s;
+}
+
+function safeISODate(val) {
+  if (!val) return null;
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return null;
+    const d = val.toISOString().split('T')[0];
+    const [y,m,dy] = d.split('-').map(Number);
+    if (m < 1 || m > 12 || dy < 1 || dy > 31) return null;
+    return d;
+  }
+  if (typeof val === 'string') {
+    const m = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (m) {
+      const yr = m[3].length === 2 ? '20'+m[3] : m[3];
+      const mo = parseInt(m[1]), dy = parseInt(m[2]);
+      if (mo < 1 || mo > 12 || dy < 1 || dy > 31) return null;
+      return `${yr}-${String(mo).padStart(2,'0')}-${String(dy).padStart(2,'0')}`;
+    }
+  }
+  return null;
+}
+
+function isPatientName(val) {
+  if (!val || typeof val !== 'string') return false;
+  const v = val.trim();
+  if (v.length < 4) return false;
+  const skip = ['patient name','careplus','humana','lymphedema','ppo','no-careplus',
+    'auth#','auth #','medicare','medicaid','bcbs','aetna','region','note:','sheet',
+    'galindo','tab','visit','eval','maintenance','summary','task tracker',
+    'auth tracker','auth denied','appeal','new auth'];
+  if (skip.some(s => v.toLowerCase().includes(s))) return false;
+  return v.includes(',') || (v === v.toUpperCase() && v.includes(' ') && v.length > 5);
+}
+
+// ── Parser: Ethel format (region sheets, auth# rows) ──────────
+function parseEthelFormat(XLSX, arrayBuffer, payer, assignTo) {
+  const wb = XLSX.read(new Uint8Array(arrayBuffer), { type:'array', cellDates:true });
+  const patients = [];
+  const parseAuthStr = (s) => {
+    const r = { raw_auth_string: s?.slice(0,300)||'' };
+    if (!s) return r;
+    const an = s.match(/[Aa][Uu][Tt][Hh]\s*#?\s*([0-9A-Za-z*]+)/);
+    if (an) r.auth_number = an[1].replace(/\*PO$/,'').trim();
+    const dr = s.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})\s*[-–]\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/);
+    if (dr) { r.auth_from = safeISODate(dr[1]); r.auth_thru = safeISODate(dr[2]); }
+    const tx = s.match(/(\d+)\s*(?:TX|MT)\s*\((\d+)-used\)/i);
+    if (tx) { r.tx_approved=parseInt(tx[1]); r.tx_used=parseInt(tx[2]); }
+    const ra = s.match(/(\d+)\s*RA\s*\((\d+)-used\)/i);
+    if (ra) { r.ra_approved=parseInt(ra[1]); r.ra_used=parseInt(ra[2]); }
+    const ev = s.match(/(\d+)\s*EVAL\s*\((\d*)-?used\)/i);
+    if (ev) { r.eval_approved=parseInt(ev[1]); r.eval_used=ev[2]?parseInt(ev[2]):0; }
+    return r;
+  };
+  for (const sheetName of wb.SheetNames) {
+    if (sheetName.toLowerCase().includes('no-')) continue;
+    const regionMatch = sheetName.match(/^([A-Z0-9\-V]+)/);
+    const region = regionMatch ? regionMatch[1].replace(/-$/,'') : '?';
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1, defval:null });
+    let current = null; let authData = {};
+    for (const row of rows) {
+      const cells = row.filter(c => c !== null && c !== '');
+      if (!cells.length) {
+        if (current) { patients.push({...current,...authData,payer,region,assigned_to:assignTo}); current=null; authData={}; }
+        continue;
+      }
+      const a = row[0]; const b = row[1];
+      if (a === 'Patient Name') continue;
+      if (a && typeof a === 'string' && /[Aa][Uu][Tt][Hh]/i.test(a)) { authData=parseAuthStr(a); continue; }
+      if (b && typeof b === 'string' && /visit|eval|maintenance/i.test(b)) continue;
+      if (isPatientName(a)) {
+        if (current) patients.push({...current,...authData,payer,region,assigned_to:assignTo});
+        current = { patient_name: a.trim().replace(/-\s*(DISCHARGED|discharged).*/i,'').trim() };
+        authData = {};
+      }
+    }
+    if (current) patients.push({...current,...authData,payer,region,assigned_to:assignTo});
+  }
+  const seen = new Map();
+  for (const p of patients) {
+    const key = `${p.patient_name?.toLowerCase().trim()}|${payer}`;
+    if (!seen.has(key) || (p.auth_number && !seen.get(key).auth_number)) seen.set(key, p);
+  }
+  return [...seen.values()];
+}
+
+// ── Parser: Carla's weekly report ─────────────────────────────
+function parseCarlaFormat(XLSX, arrayBuffer, assignTo) {
+  const wb = XLSX.read(new Uint8Array(arrayBuffer), { type:'array', cellDates:true });
+  const allRecords = [];
+  for (const sheetName of wb.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1, defval:null });
+    for (const row of rows) {
+      if (!row[0] || typeof row[0] !== 'string') continue;
+      if (!row[0].includes(',') || row[0] === 'Patient Name ') continue;
+      // cols: name, address(zip:city), disc, ins_code, soc_date, pcp, status, comments
+      const insCode = String(row[3]||'').trim();
+      const payer = resolveInsCode(insCode);
+      // Extract region from address zip code (first 2 digits) - but Carla tracks by insurance code
+      // region embedded in ins code: HUG = G, CPA = A, CPV = V
+      let region = '';
+      const rc = insCode.replace(/^[A-Z]+/i,'').replace(/[^A-Z0-9]/gi,'');
+      if (rc && rc.length <= 3) region = rc.toUpperCase();
+      allRecords.push({
+        patient_name: row[0].trim(),
+        payer,
+        region,
+        assigned_to: assignTo,
+        pcp: String(row[5]||'').trim() || null,
+        auth_status: String(row[6]||'').toLowerCase().includes('active') ? 'active' : 'pending',
+        notes: String(row[7]||'').trim() || null,
+        raw_auth_string: `Week: ${sheetName} | Ins: ${insCode} | Status: ${row[6]||''} | ${row[7]||''}`.slice(0,300),
+      });
+    }
+  }
+  // Deduplicate — keep last (most recent week)
+  const seen = new Map();
+  for (const r of allRecords) seen.set(r.patient_name.toLowerCase().trim(), r);
+  return [...seen.values()];
+}
+
+// ── Parser: Gerilyn's format ───────────────────────────────────
+function parseGerielynFormat(XLSX, arrayBuffer, assignTo) {
+  const wb = XLSX.read(new Uint8Array(arrayBuffer), { type:'array', cellDates:true });
+  const patients = new Map();
+
+  // First pass: AUTH TRACKER sheet (primary data)
+  if (wb.SheetNames.includes('AUTH TRACKER')) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets['AUTH TRACKER'], { header:1, defval:null });
+    let headerFound = false;
+    for (const row of rows) {
+      if (row[2] === 'PATIENTS') { headerFound = true; continue; }
+      if (!headerFound) continue;
+      if (!row[2] || typeof row[2] !== 'string' || !row[2].includes(',')) continue;
+      const name = row[2].trim();
+      const regionRaw = String(row[1]||'').trim();
+      const region = resolveRegion(regionRaw);
+      const payerRaw = regionRaw.toLowerCase().includes('careplus') ? 'CarePlus' : 'Humana';
+      const eoc = safeISODate(row[6]);
+      const soc = safeISODate(row[5]);
+      const visitsRem = row[7] ? parseInt(row[7]) : null;
+      patients.set(name.toLowerCase(), {
+        patient_name: name,
+        payer: payerRaw,
+        region,
+        assigned_to: assignTo,
+        auth_thru: eoc,
+        auth_from: soc,
+        tx_approved: visitsRem != null ? visitsRem + (row[8] ? parseInt(row[8]) : 0) : 0,
+        tx_used: visitsRem != null ? Math.max(0, (row[7+1] ? parseInt(row[7+1]) : 0)) : 0,
+        notes: String(row[4]||'').trim() || null, // frequency/LOC
+        raw_auth_string: `AUTH TRACKER | Region: ${regionRaw} | Freq: ${row[4]||''} | EOC: ${row[6]||''} | Rem: ${row[7]||''}`.slice(0,300),
+      });
+    }
+  }
+
+  // Second pass: TASK TRACKER (adds VOB + MID info)
+  if (wb.SheetNames.includes('TASK TRACKER')) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets['TASK TRACKER'], { header:1, defval:null });
+    let headerFound = false;
+    for (const row of rows) {
+      if (row[1] === 'REGION ') { headerFound = true; continue; }
+      if (!headerFound) continue;
+      if (!row[2] || typeof row[2] !== 'string' || !row[2].includes(',')) continue;
+      const name = row[2].trim();
+      const key = name.toLowerCase();
+      const regionRaw = String(row[1]||'').trim();
+      const region = resolveRegion(regionRaw);
+      const payerRaw = regionRaw.toLowerCase().includes('careplus') ? 'CarePlus' : 'Humana';
+      const existing = patients.get(key) || { patient_name: name, payer: payerRaw, region, assigned_to: assignTo };
+      patients.set(key, {
+        ...existing,
+        vob_verified: row[0] === true || row[0] === 'TRUE',
+        raw_auth_string: (existing.raw_auth_string||'') + ` | MID: ${row[3]||''} | PCP: ${row[6]||''}`.slice(0,300),
+      });
+    }
+  }
+
+  // Third pass: per-payer region sheets (same format as Ethel)
+  const regionSheets = wb.SheetNames.filter(s =>
+    !['TASK TRACKER','AUTH TRACKER','AUTH DENIED','HUMANA A PATIENT SUMMARY','CAREPLUS G & M PATIENT SUMMARY'].includes(s)
+  );
+  for (const sheetName of regionSheets) {
+    const payer = sheetName.toUpperCase().includes('CAREPLUS') ? 'CarePlus' : 'Humana';
+    const regionMatch = sheetName.match(/([A-Z]+)\s*$/i);
+    const region = regionMatch ? regionMatch[1].toUpperCase() : '';
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1, defval:null });
+    let current = null; let authData = {};
+    const parseAuthStr = (s) => {
+      const r = { raw_auth_string: s?.slice(0,300)||'' };
+      if (!s) return r;
+      const an = s.match(/[Aa][Uu][Tt][Hh]\s*#?\s*([0-9A-Za-z*]+)/);
+      if (an) r.auth_number = an[1].replace(/\*PO$/,'').trim();
+      const dr = s.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})\s*[-–]\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/);
+      if (dr) { r.auth_from = safeISODate(dr[1]); r.auth_thru = safeISODate(dr[2]); }
+      const tx = s.match(/(\d+)\s*(?:TX|MT|Units?)\s*\((\d+)-used\)/i);
+      if (tx) { r.tx_approved=parseInt(tx[1]); r.tx_used=parseInt(tx[2]); }
+      return r;
+    };
+    for (const row of rows) {
+      if (!row.some(c => c !== null)) {
+        if (current) {
+          const key = current.patient_name.toLowerCase();
+          if (!patients.has(key) || (authData.auth_number && !patients.get(key)?.auth_number)) {
+            patients.set(key, {...(patients.get(key)||{}), ...current, ...authData, payer, region, assigned_to: assignTo});
+          }
+          current=null; authData={};
+        }
+        continue;
+      }
+      const a = row[0]; const b = row[1];
+      if (a === 'Patient Name') continue;
+      if (a && typeof a === 'string' && /[Aa][Uu][Tt][Hh]/i.test(a)) { authData=parseAuthStr(a); continue; }
+      if (b && typeof b === 'string' && /visit|eval|maintenance/i.test(b)) continue;
+      if (isPatientName(a)) {
+        if (current) {
+          const key = current.patient_name.toLowerCase();
+          if (!patients.has(key)) patients.set(key, {...current,...authData,payer,region,assigned_to:assignTo});
+        }
+        current = { patient_name: a.trim().replace(/-\s*(DISCHARGED|discharged).*/i,'').trim() };
+        authData = {};
+      }
+    }
+  }
+
+  return [...patients.values()];
+}
+
+// ── Parser: Uriel's multi-payer format ────────────────────────
+function parseUrielFormat(XLSX, arrayBuffer, assignTo) {
+  const wb = XLSX.read(new Uint8Array(arrayBuffer), { type:'array', cellDates:true });
+  const patients = new Map();
+
+  // Read AUTH PENDING sheet first
+  if (wb.SheetNames.includes('AUTH PENDING')) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets['AUTH PENDING'], { header:1, defval:null });
+    let headerFound = false;
+    for (const row of rows) {
+      if (row[0] === 'Patient Name') { headerFound = true; continue; }
+      if (!headerFound) continue;
+      if (!row[0] || typeof row[0] !== 'string' || !row[0].includes(',')) continue;
+      const name = row[0].trim();
+      patients.set(name.toLowerCase(), {
+        patient_name: name,
+        payer: resolveInsCode(String(row[1]||'')),
+        region: String(row[2]||'').trim(),
+        assigned_to: assignTo,
+        date_submitted: safeISODate(row[5]),
+        next_follow_up: safeISODate(row[6]),
+        auth_status: 'pending',
+        notes: String(row[7]||'').trim() || null,
+        raw_auth_string: `AUTH PENDING | ${row[1]||''} | ${row[7]||''}`.slice(0,300),
+      });
+    }
+  }
+
+  // Read all SUMMARY sheets
+  const summarySheets = wb.SheetNames.filter(s => s.toUpperCase().includes('SUMMARY'));
+  for (const sheetName of summarySheets) {
+    const payerFromSheet = sheetName.toUpperCase().includes('CAREPLUS') ? 'CarePlus'
+      : sheetName.toUpperCase().includes('FHCP') ? 'FL Health Care Plans'
+      : sheetName.toUpperCase().includes('DEVOTED') ? 'Medicare/Devoted'
+      : sheetName.toUpperCase().includes('SIMPLY') ? 'Simply'
+      : sheetName.toUpperCase().includes('HEALTH') ? 'HealthFirst'
+      : sheetName.toUpperCase().includes('CIGNA') ? 'Cigna'
+      : 'Medicare';
+
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1, defval:null });
+    let nameIdx=1, statusIdx=5, regionIdx=4, expiryIdx=7;
+    let headerFound = false;
+
+    for (const row of rows) {
+      // Find header row
+      if (!headerFound) {
+        const rowStr = row.map(c => String(c||'').toUpperCase());
+        if (rowStr.some(c => c.includes('NAME'))) {
+          headerFound = true;
+          nameIdx = rowStr.findIndex(c => c.includes('NAME'));
+          statusIdx = rowStr.findIndex(c => c.includes('STATUS'));
+          regionIdx = rowStr.findIndex(c => c.includes('REGION'));
+          expiryIdx = rowStr.findIndex(c => c.includes('EXPIRE') || c.includes('AUTH EXP'));
+          if (nameIdx < 0) nameIdx = 1;
+          continue;
+        }
+        continue;
+      }
+      const name = row[nameIdx];
+      if (!name || typeof name !== 'string' || !name.includes(',') || name.length < 4) continue;
+      const key = name.trim().toLowerCase();
+      const existing = patients.get(key) || {};
+      patients.set(key, {
+        ...existing,
+        patient_name: name.trim(),
+        payer: payerFromSheet,
+        region: regionIdx >= 0 ? String(row[regionIdx]||'').trim() : existing.region || '',
+        assigned_to: assignTo,
+        auth_thru: expiryIdx >= 0 ? safeISODate(row[expiryIdx]) : existing.auth_thru,
+        auth_status: statusIdx >= 0 ? (String(row[statusIdx]||'').toLowerCase().includes('active') ? 'active' : 'pending') : 'active',
+        raw_auth_string: `${sheetName} | Status: ${row[statusIdx]||''} | Expiry: ${row[expiryIdx]||''}`.slice(0,300),
+      });
+    }
+  }
+
+  // Also parse per-payer/region sheets (same format as Ethel)
+  const detailSheets = wb.SheetNames.filter(s => {
+    const su = s.toUpperCase();
+    return !su.includes('SUMMARY') && !su.includes('AUTH PENDING') && !su.includes('DENIED')
+      && !su.includes('ACTIVE CONVIVA') && !su.includes('MEDICARE REG')
+      && !su.includes('NO-') && !su.includes('FENYX');
+  });
+
+  for (const sheetName of detailSheets) {
+    const su = sheetName.toUpperCase();
+    const payer = su.includes('CAREPLUS') ? 'CarePlus'
+      : su.includes('FHCP') ? 'FL Health Care Plans'
+      : su.includes('DEVOTED') ? 'Medicare/Devoted'
+      : su.includes('SIMPLY') ? 'Simply'
+      : su.includes('HEALTH') ? 'HealthFirst'
+      : su.includes('CIGNA') ? 'Cigna'
+      : su.includes('AETNA') ? 'Aetna'
+      : 'Other';
+    const regionMatch = sheetName.match(/[-–\s]([A-Z])[\s🌹🍓🌺💥🍈🌋🍄☂️🌟]?$/i);
+    const region = regionMatch ? regionMatch[1].toUpperCase() : '';
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1, defval:null });
+    let current = null; let authData = {};
+    const parseAuthStr = (s) => {
+      const r = { raw_auth_string: s?.slice(0,300)||'' };
+      if (!s) return r;
+      const an = s.match(/[Aa][Uu][Tt][Hh]\s*#?\s*([0-9A-Za-z*]+)/);
+      if (an) r.auth_number = an[1].replace(/\*PO$/,'').trim();
+      const dr = s.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})\s*[-–]\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/);
+      if (dr) { r.auth_from = safeISODate(dr[1]); r.auth_thru = safeISODate(dr[2]); }
+      const tx = s.match(/(\d+)\s*(?:TX|MT|Units?)\s*\((\d+)-used\)/i);
+      if (tx) { r.tx_approved=parseInt(tx[1]); r.tx_used=parseInt(tx[2]); }
+      const ra = s.match(/(\d+)\s*RA\s*\((\d+)-used\)/i);
+      if (ra) { r.ra_approved=parseInt(ra[1]); r.ra_used=parseInt(ra[2]); }
+      return r;
+    };
+    for (const row of rows) {
+      if (!row.some(c => c !== null)) {
+        if (current) {
+          const key = current.patient_name.toLowerCase();
+          const ex = patients.get(key);
+          if (!ex || (authData.auth_number && !ex.auth_number)) {
+            patients.set(key, {...(ex||{}), ...current, ...authData, payer, region, assigned_to: assignTo});
+          }
+          current=null; authData={};
+        }
+        continue;
+      }
+      const a = row[0]; const b = row[1];
+      if (a === 'Patient Name') continue;
+      if (a && typeof a === 'string' && /[Aa][Uu][Tt][Hh]/i.test(a)) { authData=parseAuthStr(a); continue; }
+      if (b && typeof b === 'string' && /visit|eval|maintenance/i.test(b)) continue;
+      if (isPatientName(a)) {
+        if (current) { const key = current.patient_name.toLowerCase(); if (!patients.has(key)) patients.set(key, {...current,...authData,payer,region,assigned_to:assignTo}); }
+        current = { patient_name: a.trim().replace(/-\s*(DISCHARGED|discharged).*/i,'').trim() }; authData = {};
+      }
+    }
+  }
+
+  return [...patients.values()];
+}
+
 function ImportPanel({ onImportComplete }) {
-  const [humanaFile, setHumanaFile] = useState(null);
-  const [careplusFile, setCareplusFile] = useState(null);
+  const [files, setFiles] = useState({});
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
   const [done, setDone] = useState(null);
-  const humanaRef = useRef(); const careplusRef = useRef();
+  const fileRefs = useRef({});
 
   const loadXLSX = () => new Promise((resolve, reject) => {
     if (window.XLSX) { resolve(window.XLSX); return; }
     const s = document.createElement('script');
     s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-    s.onload = () => resolve(window.XLSX);
-    s.onerror = reject;
+    s.onload = () => resolve(window.XLSX); s.onerror = reject;
     document.head.appendChild(s);
   });
 
-  const readFile = (file) => new Promise((resolve) => {
-    const r = new FileReader();
-    r.onload = e => resolve(e.target.result);
-    r.readAsArrayBuffer(file);
-  });
+  const readFile = f => new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsArrayBuffer(f); });
 
   const runImport = async () => {
-    if (!humanaFile && !careplusFile) { setError('Please select at least one file.'); return; }
+    const selectedFiles = Object.entries(files).filter(([,f]) => f);
+    if (!selectedFiles.length) { setError('Please select at least one file.'); return; }
     setImporting(true); setError(''); setProgress('Loading Excel parser...');
     try {
       const XLSX = await loadXLSX();
       let allRecords = [];
 
-      if (humanaFile) {
-        setProgress('Parsing Humana file...');
-        const buf = await readFile(humanaFile);
-        const records = parseAuthExcel(XLSX, buf, 'Humana');
+      for (const [key, file] of selectedFiles) {
+        const cfg = IMPORT_CONFIGS.find(c => c.key === key);
+        setProgress(`Parsing ${cfg.label}...`);
+        const buf = await readFile(file);
+        let records = [];
+        if (key === 'ethel_humana') records = parseEthelFormat(XLSX, buf, 'Humana', cfg.assignTo);
+        else if (key === 'ethel_careplus') records = parseEthelFormat(XLSX, buf, 'CarePlus', cfg.assignTo);
+        else if (key === 'carla') records = parseCarlaFormat(XLSX, buf, cfg.assignTo);
+        else if (key === 'carla_multi') records = parseUrielFormat(XLSX, buf, cfg.assignTo);
+        else if (key === 'gerilyn') records = parseGerielynFormat(XLSX, buf, cfg.assignTo);
         allRecords = allRecords.concat(records);
-        setProgress(`Humana: ${records.length} records parsed`);
+        setProgress(`${cfg.label}: ${records.length} records parsed`);
       }
-      if (careplusFile) {
-        setProgress('Parsing CarePlus file...');
-        const buf = await readFile(careplusFile);
-        const records = parseAuthExcel(XLSX, buf, 'CarePlus');
-        allRecords = allRecords.concat(records);
-        setProgress(`CarePlus: ${records.length} records parsed`);
+
+      setProgress(`Clearing previous records for selected staff...`);
+      const assignees = [...new Set(selectedFiles.map(([key]) => IMPORT_CONFIGS.find(c=>c.key===key)?.assignTo).filter(Boolean))];
+      for (const assignee of assignees) {
+        await supabase.from('auth_records').delete().eq('assigned_to', assignee);
       }
 
       setProgress(`Uploading ${allRecords.length} records to Supabase...`);
-
-      // Clear existing Ethel records first
-      await supabase.from('auth_records').delete().eq('assigned_to','Ethel Camposano');
-
-      // Batch insert
       const BATCH = 100;
       let inserted = 0;
+      const safeDate = (d) => {
+        if (!d) return null;
+        const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!m) return null;
+        const [,y,mo,dy] = m;
+        if (parseInt(mo)<1||parseInt(mo)>12||parseInt(dy)<1||parseInt(dy)>31) return null;
+        try { return isNaN(new Date(d).getTime()) ? null : d; } catch { return null; }
+      };
       for (let i = 0; i < allRecords.length; i += BATCH) {
-        // Validate date — reject anything with invalid month/day
-        const safeDate = (d) => {
-          if (!d) return null;
-          const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-          if (!m) return null;
-          const [,y,mo,dy] = m;
-          if (parseInt(mo)<1||parseInt(mo)>12||parseInt(dy)<1||parseInt(dy)>31) return null;
-          try { const dt = new Date(d); return isNaN(dt.getTime()) ? null : d; } catch { return null; }
-        };
-        const batch = allRecords.slice(i, i + BATCH).map(r => ({
-          patient_name: r.patient_name || '',
-          payer: r.payer || '',
-          region: r.region || '',
-          assigned_to: r.assigned_to || 'Ethel Camposano',
-          auth_number: r.auth_number || null,
+        const batch = allRecords.slice(i, i+BATCH).map(r => ({
+          patient_name: r.patient_name||'',
+          payer: r.payer||'',
+          region: r.region||'',
+          assigned_to: r.assigned_to||'',
+          auth_number: r.auth_number||null,
           auth_from: safeDate(r.auth_from),
           auth_thru: safeDate(r.auth_thru),
-          tx_approved: r.tx_approved || 0,
-          tx_used: r.tx_used || 0,
-          ra_approved: r.ra_approved || 0,
-          ra_used: r.ra_used || 0,
-          eval_approved: r.eval_approved || 0,
-          eval_used: r.eval_used || 0,
-          auth_status: 'active',
-          raw_auth_string: r.raw_auth_string || null,
+          tx_approved: parseInt(r.tx_approved)||0,
+          tx_used: parseInt(r.tx_used)||0,
+          ra_approved: parseInt(r.ra_approved)||0,
+          ra_used: parseInt(r.ra_used)||0,
+          eval_approved: parseInt(r.eval_approved)||0,
+          eval_used: parseInt(r.eval_used)||0,
+          auth_status: r.auth_status||'active',
+          pcp: r.pcp||null,
+          date_submitted: safeDate(r.date_submitted),
+          next_follow_up: safeDate(r.next_follow_up),
+          notes: r.notes||null,
+          vob_verified: r.vob_verified||false,
+          raw_auth_string: r.raw_auth_string||null,
           updated_at: new Date().toISOString(),
         }));
         const { error: err } = await supabase.from('auth_records').insert(batch);
@@ -237,34 +660,36 @@ function ImportPanel({ onImportComplete }) {
         setProgress(`Uploading... ${inserted}/${allRecords.length}`);
       }
 
-      setDone({ total: allRecords.length, humana: allRecords.filter(r=>r.payer==='Humana').length, careplus: allRecords.filter(r=>r.payer==='CarePlus').length });
-      setProgress('');
-      setImporting(false);
+      const summary = {};
+      allRecords.forEach(r => { summary[r.assigned_to] = (summary[r.assigned_to]||0)+1; });
+      setDone({ total: allRecords.length, summary });
+      setProgress(''); setImporting(false);
       onImportComplete();
     } catch(e) {
       setError('Import failed: ' + e.message);
-      setImporting(false);
-      setProgress('');
+      setImporting(false); setProgress('');
     }
   };
 
   return (
     <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:16, padding:'24px', marginBottom:20, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
-      <div style={{ fontSize:15, fontWeight:800, color:B.black, marginBottom:4 }}>📥 Import Ethel's Auth Tracking Files</div>
-      <div style={{ fontSize:12, color:B.gray, marginBottom:20 }}>Upload the Humana and CarePlus Excel files to replace the spreadsheets. Data is stored in Supabase — accessible by all team members and exportable to Excel/CSV.</div>
+      <div style={{ fontSize:15, fontWeight:800, color:B.black, marginBottom:4 }}>📥 Import Auth Tracking Files</div>
+      <div style={{ fontSize:12, color:B.gray, marginBottom:20 }}>Upload tracking files for any team member. Select only the files you want to update — unselected members' data is preserved.</div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:20 }}>
-        {[
-          { label:'Humana Auth Tracking', payer:'Humana', file:humanaFile, ref:humanaRef, setter:setHumanaFile, color:'#0066CC' },
-          { label:'CarePlus Auth Tracking', payer:'CarePlus', file:careplusFile, ref:careplusRef, setter:setCareplusFile, color:'#009B77' },
-        ].map(f => (
-          <div key={f.payer} style={{ border:`2px dashed ${f.file?f.color:B.border}`, borderRadius:12, padding:'20px', textAlign:'center', background:f.file?`${f.color}08`:'#FAFAFA', cursor:'pointer' }} onClick={() => f.ref.current.click()}>
-            <input ref={f.ref} type="file" accept=".xlsx,.xls" style={{ display:'none' }} onChange={e => { f.setter(e.target.files[0]); e.target.value=''; }} />
-            <div style={{ fontSize:24, marginBottom:8 }}>{f.file ? '✅' : '📊'}</div>
-            <div style={{ fontSize:13, fontWeight:600, color:f.file?f.color:B.black }}>{f.file ? f.file.name : f.label}</div>
-            <div style={{ fontSize:11, color:B.lightGray, marginTop:4 }}>{f.file ? 'Click to change' : 'Click to select .xlsx file'}</div>
-          </div>
-        ))}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
+        {IMPORT_CONFIGS.map(cfg => {
+          const file = files[cfg.key];
+          return (
+            <div key={cfg.key}
+              style={{ border:`2px dashed ${file?cfg.color:B.border}`, borderRadius:12, padding:'16px', textAlign:'center', background:file?`${cfg.color}08`:'#FAFAFA', cursor:'pointer', transition:'all 0.15s' }}
+              onClick={() => { if (!fileRefs.current[cfg.key]) fileRefs.current[cfg.key] = document.createElement('input'); const inp = fileRefs.current[cfg.key]; inp.type='file'; inp.accept='.xlsx,.xls'; inp.onchange=e=>{ setFiles(p=>({...p,[cfg.key]:e.target.files[0]})); }; inp.click(); }}>
+              <div style={{ fontSize:20, marginBottom:6 }}>{file ? '✅' : '📊'}</div>
+              <div style={{ fontSize:12, fontWeight:700, color:file?cfg.color:B.black }}>{cfg.label}</div>
+              <div style={{ fontSize:11, color:file?cfg.color:B.lightGray, marginTop:3 }}>{file ? file.name : cfg.hint}</div>
+              {file && <div style={{ fontSize:10, color:B.lightGray, marginTop:2 }}>Click to change</div>}
+            </div>
+          );
+        })}
       </div>
 
       {progress && <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:8, padding:'10px 14px', fontSize:12, color:B.blue, marginBottom:12 }}>⏳ {progress}</div>}
@@ -272,21 +697,26 @@ function ImportPanel({ onImportComplete }) {
 
       {done && (
         <div style={{ background:'#F0FDF4', border:'1px solid #BBF7D0', borderRadius:10, padding:'14px 18px', marginBottom:16 }}>
-          <div style={{ fontSize:14, fontWeight:700, color:B.green, marginBottom:6 }}>✅ Import Complete</div>
-          <div style={{ fontSize:12, color:B.green }}>
-            {done.total} total records imported — {done.humana} Humana · {done.careplus} CarePlus<br/>
-            All data is now stored in Supabase. The spreadsheets are no longer needed.
+          <div style={{ fontSize:14, fontWeight:700, color:B.green, marginBottom:8 }}>✅ Import Complete — {done.total} total records</div>
+          <div style={{ display:'flex', gap:16, flexWrap:'wrap' }}>
+            {Object.entries(done.summary).map(([name, count]) => (
+              <div key={name} style={{ fontSize:12, color:B.green }}><span style={{ fontWeight:700 }}>{name.split(' ')[0]}:</span> {count} records</div>
+            ))}
           </div>
         </div>
       )}
 
-      <button onClick={runImport} disabled={importing || (!humanaFile && !careplusFile)}
-        style={{ background:`linear-gradient(135deg,${B.red},${B.darkRed})`, border:'none', borderRadius:10, color:'#fff', padding:'11px 24px', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', opacity:importing||(!humanaFile&&!careplusFile)?0.5:1 }}>
-        {importing ? 'Importing...' : '📥 Import Files to Supabase'}
-      </button>
+      <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+        <button onClick={runImport} disabled={importing||!Object.values(files).some(Boolean)}
+          style={{ background:`linear-gradient(135deg,${B.red},${B.darkRed})`, border:'none', borderRadius:10, color:'#fff', padding:'11px 24px', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', opacity:importing||!Object.values(files).some(Boolean)?0.5:1 }}>
+          {importing?'Importing...':'📥 Import Selected Files'}
+        </button>
+        <span style={{ fontSize:11, color:B.lightGray }}>{Object.values(files).filter(Boolean).length} file{Object.values(files).filter(Boolean).length!==1?'s':''} selected</span>
+      </div>
     </div>
   );
 }
+
 
 // ── Export function ───────────────────────────────────────────
 async function exportToExcel(records, filename) {
