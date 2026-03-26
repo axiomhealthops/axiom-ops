@@ -204,14 +204,23 @@ function ImportPanel({ onImportComplete }) {
       const BATCH = 100;
       let inserted = 0;
       for (let i = 0; i < allRecords.length; i += BATCH) {
+        // Validate date — reject anything with invalid month/day
+        const safeDate = (d) => {
+          if (!d) return null;
+          const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          if (!m) return null;
+          const [,y,mo,dy] = m;
+          if (parseInt(mo)<1||parseInt(mo)>12||parseInt(dy)<1||parseInt(dy)>31) return null;
+          try { const dt = new Date(d); return isNaN(dt.getTime()) ? null : d; } catch { return null; }
+        };
         const batch = allRecords.slice(i, i + BATCH).map(r => ({
           patient_name: r.patient_name || '',
           payer: r.payer || '',
           region: r.region || '',
           assigned_to: r.assigned_to || 'Ethel Camposano',
           auth_number: r.auth_number || null,
-          auth_from: r.auth_from || null,
-          auth_thru: r.auth_thru || null,
+          auth_from: safeDate(r.auth_from),
+          auth_thru: safeDate(r.auth_thru),
           tx_approved: r.tx_approved || 0,
           tx_used: r.tx_used || 0,
           ra_approved: r.ra_approved || 0,
