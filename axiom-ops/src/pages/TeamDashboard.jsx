@@ -17,7 +17,8 @@ const PAYER_COLORS = {
   'Humana':'#0066CC','CarePlus':'#009B77','Medicare/Devoted':'#1565C0',
   'FL Health Care Plans':'#2E7D32','Aetna':'#7B1FA2',
   'Cigna':'#E65100','HealthFirst':'#00838F','Simply':'#0891B2',
-  'Medicare':'#64748B','Other':'#6B7280','Unknown':'#9CA3AF',
+  'Medicare':'#64748B','Private Pay':'#92400E','Private Pay/LOA':'#78350F',
+  'Other':'#6B7280','Unknown':'#9CA3AF',
 };
 const PAYER_PHONES = {
   'Humana':'1-800-448-6262','CarePlus':'1-800-794-5907',
