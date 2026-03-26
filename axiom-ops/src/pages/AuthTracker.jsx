@@ -161,21 +161,29 @@ const IMPORT_CONFIGS = [
 const INS_CODE_MAP = {
   'HUG':'Humana','HUM':'Humana','HUMA':'Humana','HUMG':'Humana','HUMM':'Humana',
   'HUB':'Humana','HUV':'Humana','HUN':'Humana','HUT':'Humana','HUI':'Humana',
-  'HUJ':'Humana','HUC':'Humana','HUMA':'Humana','HUMANA':'Humana',
+  'HUJ':'Humana','HUC':'Humana','HUH':'Humana','HUMANA':'Humana',
   'HumA':'Humana','HumG':'Humana','HumV':'Humana','HumM':'Humana','HumN':'Humana',
   'CPA':'CarePlus','CPB':'CarePlus','CPC':'CarePlus','CPG':'CarePlus','CPH':'CarePlus',
   'CPI':'CarePlus','CPJ':'CarePlus','CPM':'CarePlus','CPN':'CarePlus','CPT':'CarePlus',
   'CPV':'CarePlus','CAREPLUS':'CarePlus','CAREP':'CarePlus',
   'ACA':'Aetna','ACB':'Aetna','ACG':'Aetna','ACH':'Aetna','ACJ':'Aetna',
   'ACN':'Aetna','ACT':'Aetna','ACV':'Aetna','AETNA':'Aetna',
+  'AMA':'Aetna','AMB':'Aetna','AMG':'Aetna','AMH':'Aetna','AMM':'Aetna','AMN':'Aetna',
   'FHCC':'FL Health Care Plans','FHCG':'FL Health Care Plans','FHCA':'FL Health Care Plans',
+  'FHCB':'FL Health Care Plans','FHCH':'FL Health Care Plans','FHCJ':'FL Health Care Plans',
   'FHCP':'FL Health Care Plans',
-  'DHA':'Medicare/Devoted','DHG':'Medicare/Devoted','DHV':'Medicare/Devoted',
-  'DEVOTED':'Medicare/Devoted','DE':'Medicare/Devoted',
+  'DHA':'Medicare/Devoted','DHG':'Medicare/Devoted','DHV':'Medicare/Devoted','DHB':'Medicare/Devoted',
+  'DEVOTED':'Medicare/Devoted',
+  'MEDA':'Medicare','MEDB':'Medicare','MEDC':'Medicare','MEDG':'Medicare',
+  'MEDH':'Medicare','MEDJ':'Medicare','MEDM':'Medicare','MEDN':'Medicare',
+  'MEDT':'Medicare','MEDV':'Medicare','MED':'Medicare','MEDICARE':'Medicare',
+  'MedA':'Medicare','MedB':'Medicare','MedG':'Medicare','MedJ':'Medicare','MedM':'Medicare',
   'SV':'Simply','SH':'Simply','SIMPLY':'Simply',
-  'HFA':'HealthFirst','HFG':'HealthFirst','HEALTHFIRST':'HealthFirst','HF':'HealthFirst',
-  'CIG':'Cigna','CIGNA':'Cigna',
-  'MED':'Medicare','MEDICARE':'Medicare',
+  'HFA':'HealthFirst','HFG':'HealthFirst','HFJ':'HealthFirst','HFB':'HealthFirst',
+  'HEALTHFIRST':'HealthFirst',
+  'CIG':'Cigna','CIGA':'Cigna','CIGB':'Cigna','CIGG':'Cigna','CIGT':'Cigna',
+  'CIGNA':'Cigna','HCIG':'Cigna','CMA':'Cigna',
+  'PPA':'Other','PPB':'Other','PPG':'Other',
 };
 
 function resolveRegion(code) {
@@ -843,7 +851,13 @@ export default function AuthTracker() {
   const visible = useMemo(() => {
     let list = augmented;
     if (!showExpired) list = list.filter(r => r.priority !== 'expired');
-    if (filterPayer !== 'all') list = list.filter(r => r.payer === filterPayer);
+    if (filterPayer !== 'all') {
+      if (filterPayer === 'Unknown') {
+        list = list.filter(r => !r.payer || r.payer === 'Unknown' || r.payer.length <= 2);
+      } else {
+        list = list.filter(r => r.payer === filterPayer);
+      }
+    }
     if (filterRegion !== 'all') list = list.filter(r => r.region === filterRegion);
     if (filterPriority !== 'all') list = list.filter(r => r.priority === filterPriority);
     if (filterAssignee !== 'all') list = list.filter(r => r.assigned_to === filterAssignee);
@@ -899,7 +913,7 @@ export default function AuthTracker() {
     const map = {};
     active.forEach(r => {
       // Normalize payer — single letters are regions, not payers
-      const payer = (!r.payer || r.payer.length <= 2) ? 'Unknown'
+      const payer = (!r.payer || r.payer.length <= 2 || r.payer === 'Unknown') ? 'Unknown'
         : KNOWN_PAYERS.has(r.payer) ? r.payer
         : r.payer.length > 2 ? r.payer : 'Unknown';
       if (!map[payer]) map[payer] = { total:0, noAuth:0, critical:0, expiring:0 };
