@@ -21,7 +21,7 @@ const PAYER_PHONES = {
   'Aetna':'1-800-624-0756','Cigna':'1-800-244-6224','HealthFirst':'1-800-935-5465',
 };
 const ALL_REGIONS = ['A','B','C','G','H','I','J','L','M','N','T','V','V1-B','V2-MD'];
-const TEAM_MEMBERS = ['Ethel Camposano','Gerilyn Bayson','Uriel Sarabosing'];
+const TEAM_MEMBERS = ['Carla Smith','Ethel Camposano','Gerilyn Bayson','Uriel Sarabosing'];
 
 // ── Helper: parse date strings flexibly ──────────────────────
 function parseDate(str) {
@@ -767,44 +767,387 @@ function ImportPanel({ onImportComplete }) {
 }
 
 
-// ── Export function ───────────────────────────────────────────
-async function exportToExcel(records, filename) {
-  const XLSX = await new Promise((resolve, reject) => {
+// ── Export functions ──────────────────────────────────────────
+async function loadXLSXLib() {
+  return new Promise((resolve, reject) => {
     if (window.XLSX) { resolve(window.XLSX); return; }
     const s = document.createElement('script');
     s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
     s.onload = () => resolve(window.XLSX); s.onerror = reject;
     document.head.appendChild(s);
   });
+}
+
+// Standard canonical export — same format accepted as import
+async function exportToExcel(records, filename) {
+  const XLSX = await loadXLSXLib();
   const rows = records.map(r => ({
-    'Patient Name': r.patient_name,
-    'Payer': r.payer,
-    'Region': r.region,
-    'Assigned To': r.assigned_to,
-    'Auth Number': r.auth_number,
-    'Auth From': r.auth_from,
-    'Auth Thru': r.auth_thru,
-    'TX Approved': r.tx_approved,
-    'TX Used': r.tx_used,
+    'Patient Name': r.patient_name || '',
+    'Payer': r.payer || '',
+    'Region': r.region || '',
+    'Assigned To': r.assigned_to || '',
+    'Auth Number': r.auth_number || '',
+    'Auth From': r.auth_from || '',
+    'Auth Thru': r.auth_thru || '',
+    'TX Approved': r.tx_approved || 0,
+    'TX Used': r.tx_used || 0,
     'TX Remaining': (r.tx_approved||0)-(r.tx_used||0),
-    'RA Approved': r.ra_approved,
-    'RA Used': r.ra_used,
-    'Eval Approved': r.eval_approved,
-    'Eval Used': r.eval_used,
-    'Auth Status': r.auth_status,
-    'PCP': r.pcp,
-    'Date Submitted': r.date_submitted,
-    'Last Call Date': r.last_call_date,
-    'Last Call Notes': r.last_call_notes,
-    'Next Follow Up': r.next_follow_up,
+    'RA Approved': r.ra_approved || 0,
+    'RA Used': r.ra_used || 0,
+    'Eval Approved': r.eval_approved || 0,
+    'Eval Used': r.eval_used || 0,
+    'Auth Status': r.auth_status || '',
+    'PCP': r.pcp || '',
+    'Date Submitted': r.date_submitted || '',
+    'Last Call Date': r.last_call_date || '',
+    'Last Call Notes': r.last_call_notes || '',
+    'Next Follow Up': r.next_follow_up || '',
     'VOB Verified': r.vob_verified ? 'Yes' : 'No',
-    'Notes': r.notes,
+    'Claim Paid': r.claim_paid ? 'Yes' : 'No',
+    'Notes': r.notes || '',
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
+  // Column widths
+  ws['!cols'] = [22,14,8,18,16,12,12,10,10,10,10,10,10,10,16,14,12,12,30,12,10,10,30].map(w=>({wch:w}));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Auth Records');
   XLSX.writeFile(wb, filename);
 }
+
+// Payer breakdown summary export for director reports
+async function exportPayerReport(records, filename) {
+  const XLSX = await loadXLSXLib();
+  const KNOWN = ['Humana','CarePlus','Medicare/Devoted','FL Health Care Plans','Aetna','Cigna','HealthFirst','Simply','Medicare','Other','Unknown'];
+  const map = {};
+  for (const r of records) {
+    const payer = (!r.payer||r.payer.length<=2) ? 'Unknown' : r.payer;
+    if (!map[payer]) map[payer] = { total:0, active:0, noAuth:0, expiring7:0, expiring30:0, expired:0, pending:0, denied:0, avgTxRemaining:[] };
+    map[payer].total++;
+    const status = (r.auth_status||'').toLowerCase();
+    if (status === 'active') map[payer].active++;
+    if (!r.auth_number) map[payer].noAuth++;
+    if (status === 'pending') map[payer].pending++;
+    if (status === 'denied') map[payer].denied++;
+    const days = r.auth_thru ? Math.floor((new Date(r.auth_thru+'T12:00:00')-new Date())/86400000) : null;
+    if (days !== null && days < 0) map[payer].expired++;
+    else if (days !== null && days <= 7) map[payer].expiring7++;
+    else if (days !== null && days <= 30) map[payer].expiring30++;
+    const rem = (r.tx_approved||0)-(r.tx_used||0);
+    if (rem > 0) map[payer].avgTxRemaining.push(rem);
+  }
+  const rows = Object.entries(map)
+    .sort(([,a],[,b]) => b.total - a.total)
+    .map(([payer, d]) => ({
+      'Payer': payer,
+      'Total Patients': d.total,
+      'Active w/ Auth': d.active,
+      'No Auth on File': d.noAuth,
+      'Expiring ≤7 Days': d.expiring7,
+      'Expiring ≤30 Days': d.expiring30,
+      'Expired': d.expired,
+      'Pending Review': d.pending,
+      'Denied': d.denied,
+      'Auth Coverage %': d.total > 0 ? Math.round((d.total-d.noAuth)/d.total*100)+'%' : '0%',
+      'Avg TX Visits Remaining': d.avgTxRemaining.length > 0 ? Math.round(d.avgTxRemaining.reduce((a,b)=>a+b,0)/d.avgTxRemaining.length) : 'N/A',
+      'Report Date': new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}),
+    }));
+
+  // Also add per-coordinator breakdown
+  const coordMap = {};
+  for (const r of records) {
+    const name = r.assigned_to || 'Unassigned';
+    if (!coordMap[name]) coordMap[name] = { total:0, noAuth:0, critical:0, expiring:0 };
+    coordMap[name].total++;
+    if (!r.auth_number) coordMap[name].noAuth++;
+    const days = r.auth_thru ? Math.floor((new Date(r.auth_thru+'T12:00:00')-new Date())/86400000) : null;
+    if (days !== null && days <= 7) coordMap[name].critical++;
+    else if (days !== null && days <= 30) coordMap[name].expiring++;
+  }
+  const coordRows = Object.entries(coordMap).sort(([,a],[,b])=>b.total-a.total).map(([name,d])=>({
+    'Coordinator': name,
+    'Total Patients': d.total,
+    'No Auth on File': d.noAuth,
+    'Critical (≤7 days)': d.critical,
+    'Expiring ≤30 Days': d.expiring,
+    'Report Date': new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}),
+  }));
+
+  const wb = XLSX.utils.book_new();
+  const ws1 = XLSX.utils.json_to_sheet(rows);
+  ws1['!cols'] = [22,14,14,14,14,14,10,12,10,14,20,20].map(w=>({wch:w}));
+  XLSX.utils.book_append_sheet(wb, ws1, 'Payer Summary');
+  const ws2 = XLSX.utils.json_to_sheet(coordRows);
+  ws2['!cols'] = [22,14,14,14,14,20].map(w=>({wch:w}));
+  XLSX.utils.book_append_sheet(wb, ws2, 'Coordinator Summary');
+  XLSX.writeFile(wb, filename);
+}
+
+// ── Assignment Management Panel ───────────────────────────────
+function AssignmentPanel({ records, onBulkAssign, onClose }) {
+  const [selectedPatients, setSelectedPatients] = useState(new Set());
+  const [assignTo, setAssignTo] = useState('');
+  const [filterPayer, setFilterPayer] = useState('all');
+  const [filterRegion, setFilterRegion] = useState('all');
+  const [filterCurrent, setFilterCurrent] = useState('all');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(0);
+
+  const payers = [...new Set(records.map(r=>r.payer).filter(p=>p&&p.length>2))].sort();
+  const regions = [...new Set(records.map(r=>r.region).filter(Boolean))].sort();
+
+  const filtered = records.filter(r => {
+    if (filterPayer !== 'all' && r.payer !== filterPayer) return false;
+    if (filterRegion !== 'all' && r.region !== filterRegion) return false;
+    if (filterCurrent !== 'all' && r.assigned_to !== filterCurrent) return false;
+    return true;
+  });
+
+  const toggleAll = () => {
+    if (selectedPatients.size === filtered.length) {
+      setSelectedPatients(new Set());
+    } else {
+      setSelectedPatients(new Set(filtered.map(r=>r.id)));
+    }
+  };
+
+  const runAssign = async () => {
+    if (!assignTo || selectedPatients.size === 0) return;
+    setSaving(true);
+    const ids = [...selectedPatients];
+    const BATCH = 50;
+    let done = 0;
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const batch = ids.slice(i, i+BATCH);
+      await supabase.from('auth_records').update({ assigned_to: assignTo, updated_at: new Date().toISOString() }).in('id', batch);
+      done += batch.length;
+      setSaved(done);
+    }
+    setSaving(false);
+    setSelectedPatients(new Set());
+    onBulkAssign();
+  };
+
+  const selFn = (id) => setSelectedPatients(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  return (
+    <div style={{ background:B.card, border:`1.5px solid ${B.border}`, borderRadius:16, padding:'24px', marginBottom:20, boxShadow:'0 4px 20px rgba(0,0,0,0.08)' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+        <div>
+          <div style={{ fontSize:15, fontWeight:800, color:B.black }}>👥 Patient Assignment Manager</div>
+          <div style={{ fontSize:12, color:B.gray, marginTop:2 }}>Filter patients, select them, then assign to a coordinator in bulk</div>
+        </div>
+        <button onClick={onClose} style={{ background:'none', border:`1px solid ${B.border}`, borderRadius:8, color:B.gray, padding:'6px 12px', fontSize:12, cursor:'pointer', fontFamily:'inherit' }}>✕ Close</button>
+      </div>
+
+      {/* Filters */}
+      <div style={{ display:'flex', gap:8, marginBottom:14, flexWrap:'wrap', alignItems:'center' }}>
+        <select value={filterPayer} onChange={e=>setFilterPayer(e.target.value)} style={{ padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', color:B.black, outline:'none', background:'#fff' }}>
+          <option value="all">All Payers</option>
+          {payers.map(p=><option key={p} value={p}>{p}</option>)}
+        </select>
+        <select value={filterRegion} onChange={e=>setFilterRegion(e.target.value)} style={{ padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', color:B.black, outline:'none', background:'#fff' }}>
+          <option value="all">All Regions</option>
+          {regions.map(r=><option key={r} value={r}>Region {r}</option>)}
+        </select>
+        <select value={filterCurrent} onChange={e=>setFilterCurrent(e.target.value)} style={{ padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', color:B.black, outline:'none', background:'#fff' }}>
+          <option value="all">All Coordinators</option>
+          {TEAM_MEMBERS.map(n=><option key={n} value={n}>{n}</option>)}
+          <option value="">Unassigned</option>
+        </select>
+        <span style={{ fontSize:11, color:B.lightGray }}>{filtered.length} patients shown</span>
+      </div>
+
+      {/* Assign action bar */}
+      <div style={{ display:'flex', gap:10, alignItems:'center', padding:'12px 16px', background:'#FBF7F6', borderRadius:10, marginBottom:14, flexWrap:'wrap' }}>
+        <span style={{ fontSize:13, fontWeight:600, color:B.black }}>{selectedPatients.size} selected</span>
+        <span style={{ color:B.lightGray }}>→</span>
+        <select value={assignTo} onChange={e=>setAssignTo(e.target.value)} style={{ padding:'8px 12px', border:`1.5px solid ${assignTo?B.red:B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', color:B.black, outline:'none', background:'#fff', fontWeight:assignTo?700:400 }}>
+          <option value="">Select coordinator to assign...</option>
+          {TEAM_MEMBERS.map(n=><option key={n} value={n}>{n}</option>)}
+        </select>
+        <button onClick={runAssign} disabled={saving||!assignTo||selectedPatients.size===0}
+          style={{ background:`linear-gradient(135deg,${B.red},${B.darkRed})`, border:'none', borderRadius:8, color:'#fff', padding:'8px 18px', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', opacity:saving||!assignTo||selectedPatients.size===0?0.5:1 }}>
+          {saving?`Saving ${saved}...`:'Assign Selected'}
+        </button>
+        {saved>0&&!saving&&<span style={{ fontSize:12, color:B.green, fontWeight:700 }}>✓ {saved} patients assigned</span>}
+      </div>
+
+      {/* Patient table */}
+      <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:12, overflow:'hidden', maxHeight:420, overflowY:'auto' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'36px 1fr 130px 60px 140px', padding:'8px 14px', background:'#FBF7F6', borderBottom:`1px solid ${B.border}`, position:'sticky', top:0 }}>
+          <input type="checkbox" checked={selectedPatients.size===filtered.length&&filtered.length>0} onChange={toggleAll} style={{ cursor:'pointer' }} />
+          {['Patient','Payer','Region','Currently Assigned'].map(h=>(
+            <div key={h} style={{ fontSize:10, fontWeight:700, color:B.lightGray, textTransform:'uppercase', letterSpacing:'0.07em' }}>{h}</div>
+          ))}
+        </div>
+        {filtered.slice(0,300).map(r => (
+          <div key={r.id} onClick={()=>selFn(r.id)} style={{ display:'grid', gridTemplateColumns:'36px 1fr 130px 60px 140px', padding:'8px 14px', borderBottom:`1px solid #FAF4F2`, alignItems:'center', cursor:'pointer', background:selectedPatients.has(r.id)?'#FFF5F2':'transparent' }}>
+            <input type="checkbox" checked={selectedPatients.has(r.id)} onChange={()=>selFn(r.id)} onClick={e=>e.stopPropagation()} style={{ cursor:'pointer' }} />
+            <div style={{ fontSize:12, fontWeight:600, color:B.black }}>{r.patient_name}</div>
+            <div style={{ fontSize:11, color:PAYER_COLORS[r.payer]||B.gray, fontWeight:600 }}>{r.payer||'Unknown'}</div>
+            <div style={{ fontSize:11, color:B.gray }}>{r.region||'—'}</div>
+            <div style={{ fontSize:11, color:r.assigned_to?B.black:B.lightGray, fontStyle:r.assigned_to?'normal':'italic' }}>
+              {r.assigned_to||'Unassigned'}
+            </div>
+          </div>
+        ))}
+        {filtered.length===0&&<div style={{ padding:'24px', textAlign:'center', color:B.lightGray, fontSize:13 }}>No patients match these filters</div>}
+        {filtered.length>300&&<div style={{ padding:'10px', textAlign:'center', fontSize:11, color:B.lightGray }}>Showing 300 of {filtered.length} — use filters to narrow</div>}
+      </div>
+    </div>
+  );
+}
+
+// ── Daily Task List ───────────────────────────────────────────
+function DailyTaskList({ records, currentUser }) {
+  const today = new Date();
+  const todayStr = today.toDateString();
+
+  const tasks = useMemo(() => {
+    const list = [];
+    const userRecords = currentUser
+      ? records.filter(r => r.assigned_to === currentUser)
+      : records;
+
+    // 1. Overdue follow-ups
+    const overdue = userRecords.filter(r => {
+      if (!r.next_follow_up) return false;
+      return new Date(r.next_follow_up+'T12:00:00') < new Date(today.setHours(0,0,0,0));
+    });
+    if (overdue.length > 0) list.push({
+      type: 'overdue', icon:'🔴', label:'Overdue Follow-Up Calls',
+      count: overdue.length, color: B.danger, bg:'#FEF2F2', border:'#FECACA',
+      patients: overdue.sort((a,b)=>new Date(a.next_follow_up)-new Date(b.next_follow_up)).slice(0,5),
+      action: 'Call now — these are past due',
+    });
+
+    // 2. Follow-ups due today
+    const followToday = userRecords.filter(r => {
+      if (!r.next_follow_up) return false;
+      return new Date(r.next_follow_up+'T12:00:00').toDateString() === todayStr;
+    });
+    if (followToday.length > 0) list.push({
+      type: 'followup', icon:'📞', label:'Follow-Up Calls Due Today',
+      count: followToday.length, color: B.purple, bg:'#F5F3FF', border:'#DDD6FE',
+      patients: followToday.slice(0,5),
+      action: 'Complete before end of day',
+    });
+
+    // 3. Auths expiring within 7 days
+    const expiring7 = userRecords.filter(r => {
+      if (!r.auth_thru) return false;
+      const d = Math.floor((new Date(r.auth_thru+'T12:00:00')-new Date())/86400000);
+      return d >= 0 && d <= 7;
+    }).sort((a,b)=>{
+      const da = Math.floor((new Date(a.auth_thru+'T12:00:00')-new Date())/86400000);
+      const db = Math.floor((new Date(b.auth_thru+'T12:00:00')-new Date())/86400000);
+      return da-db;
+    });
+    if (expiring7.length > 0) list.push({
+      type: 'expiring', icon:'⚠️', label:'Auths Expiring Within 7 Days',
+      count: expiring7.length, color:'#EA580C', bg:'#FFF7ED', border:'#FED7AA',
+      patients: expiring7.slice(0,5),
+      action: 'Submit renewal immediately',
+    });
+
+    // 4. Active patients with ≤3 visits remaining
+    const visitsLow = userRecords.filter(r => {
+      const rem = (r.tx_approved||0)-(r.tx_used||0);
+      return r.auth_number && rem >= 0 && rem <= 3;
+    });
+    if (visitsLow.length > 0) list.push({
+      type: 'visits_low', icon:'🔢', label:'Patients with ≤3 Visits Remaining',
+      count: visitsLow.length, color: B.orange, bg:'#FFF7ED', border:'#FED7AA',
+      patients: visitsLow.slice(0,5),
+      action: 'Request renewal auth now',
+    });
+
+    // 5. Active patients with no auth on file
+    const noAuth = userRecords.filter(r => !r.auth_number && r.auth_status !== 'denied');
+    if (noAuth.length > 0) list.push({
+      type: 'no_auth', icon:'🚨', label:'Active Patients — No Auth on File',
+      count: noAuth.length, color: B.danger, bg:'#FEF2F2', border:'#FECACA',
+      patients: noAuth.slice(0,5),
+      action: 'Verify auth status with payer',
+    });
+
+    return list;
+  }, [records, currentUser]);
+
+  const [expanded, setExpanded] = useState(null);
+  const completedToday = 0; // Could track this in future
+
+  if (tasks.length === 0) return (
+    <div style={{ background:'#F0FDF4', border:'1px solid #BBF7D0', borderRadius:14, padding:'18px 20px', marginBottom:20 }}>
+      <div style={{ fontSize:13, fontWeight:700, color:B.green }}>✅ No urgent tasks for today — all clear!</div>
+    </div>
+  );
+
+  return (
+    <div style={{ background:B.card, border:`1.5px solid #FED7AA`, borderRadius:16, padding:'20px 24px', marginBottom:20, boxShadow:'0 2px 12px rgba(234,88,12,0.08)' }}>
+      {/* Header */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+        <div>
+          <div style={{ fontSize:15, fontWeight:800, color:B.black }}>📋 Daily Task List — {today.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</div>
+          <div style={{ fontSize:12, color:B.gray, marginTop:2 }}>{tasks.reduce((s,t)=>s+t.count,0)} total items requiring action today</div>
+        </div>
+        <div style={{ background:'#FFF7ED', border:'1px solid #FED7AA', borderRadius:20, padding:'4px 14px', fontSize:12, fontWeight:700, color:'#EA580C' }}>
+          {tasks.length} task{tasks.length!==1?'s':''} pending
+        </div>
+      </div>
+
+      {/* Task cards */}
+      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+        {tasks.map(task => (
+          <div key={task.type}>
+            <div onClick={()=>setExpanded(expanded===task.type?null:task.type)}
+              style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:task.bg, border:`1px solid ${task.border}`, borderRadius:10, cursor:'pointer' }}>
+              <span style={{ fontSize:18 }}>{task.icon}</span>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:task.color }}>{task.label}</div>
+                <div style={{ fontSize:11, color:task.color, opacity:0.8, marginTop:1 }}>{task.action}</div>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <div style={{ background:task.color, color:'#fff', borderRadius:20, padding:'3px 12px', fontSize:13, fontWeight:800, fontFamily:'monospace' }}>{task.count}</div>
+                <span style={{ fontSize:12, color:task.color }}>{expanded===task.type?'▲':'▼'}</span>
+              </div>
+            </div>
+            {expanded===task.type&&(
+              <div style={{ background:'#FAFAFA', border:`1px solid ${task.border}`, borderTop:'none', borderRadius:'0 0 10px 10px', padding:'10px 14px' }}>
+                {task.patients.map(p => {
+                  const daysLeft = p.auth_thru ? Math.floor((new Date(p.auth_thru+'T12:00:00')-new Date())/86400000) : null;
+                  const txRem = (p.tx_approved||0)-(p.tx_used||0);
+                  return (
+                    <div key={p.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 10px', marginBottom:4, background:B.card, borderRadius:8, border:`1px solid ${B.border}` }}>
+                      <div>
+                        <div style={{ fontSize:12, fontWeight:700, color:B.black }}>{p.patient_name}</div>
+                        <div style={{ fontSize:10, color:B.gray }}>
+                          <span style={{ color:PAYER_COLORS[p.payer]||B.gray, fontWeight:600 }}>{p.payer||'Unknown'}</span>
+                          {p.region&&<span style={{ marginLeft:6 }}>· Region {p.region}</span>}
+                          {task.type==='expiring'&&daysLeft!==null&&<span style={{ marginLeft:6, color:'#EA580C', fontWeight:700 }}>· {daysLeft}d left</span>}
+                          {task.type==='visits_low'&&<span style={{ marginLeft:6, color:B.danger, fontWeight:700 }}>· {txRem} visit{txRem!==1?'s':''} left</span>}
+                          {(task.type==='overdue'||task.type==='followup')&&p.next_follow_up&&<span style={{ marginLeft:6 }}>· Due {new Date(p.next_follow_up+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>}
+                          {p.last_call_notes&&<span style={{ marginLeft:6, color:B.lightGray, fontStyle:'italic' }}>· {p.last_call_notes.slice(0,40)}{p.last_call_notes.length>40?'...':''}</span>}
+                        </div>
+                      </div>
+                      {PAYER_PHONES[p.payer]&&<span style={{ fontSize:10, color:B.lightGray }}>📞 {PAYER_PHONES[p.payer]}</span>}
+                    </div>
+                  );
+                })}
+                {task.count>5&&<div style={{ fontSize:11, color:B.lightGray, textAlign:'center', marginTop:4 }}>+{task.count-5} more — view full list in Patient List tab</div>}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 
 // ── Main Component ────────────────────────────────────────────
 export default function AuthTracker() {
@@ -815,6 +1158,7 @@ export default function AuthTracker() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('dashboard');
   const [showImport, setShowImport] = useState(false);
+  const [showAssign, setShowAssign] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
@@ -986,7 +1330,9 @@ export default function AuthTracker() {
         </div>
         <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
           {isLeaderOrAbove && <button onClick={()=>setShowImport(p=>!p)} style={{ padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit', border:`1px solid ${showImport?B.red:B.border}`, background:showImport?'#FFF5F2':'transparent', color:showImport?B.red:B.gray }}>📥 Import Files</button>}
-          <button onClick={()=>exportToExcel(visible,'auth_records_export.xlsx')} style={{ padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit', border:`1px solid ${B.border}`, background:'transparent', color:B.gray }}>⬇️ Export Excel</button>
+          {isLeaderOrAbove && <button onClick={()=>setShowAssign(p=>!p)} style={{ padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit', border:`1px solid ${showAssign?B.purple:B.border}`, background:showAssign?'#F5F3FF':'transparent', color:showAssign?B.purple:B.gray }}>👥 Manage Assignments</button>}
+          <button onClick={()=>exportToExcel(visible,'auth_records_export.xlsx')} style={{ padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit', border:`1px solid ${B.border}`, background:'transparent', color:B.gray }}>⬇️ Export Records</button>
+          {isLeaderOrAbove && <button onClick={()=>exportPayerReport(augmented,`axiomhealth_payer_report_${new Date().toISOString().split('T')[0]}.xlsx`)} style={{ padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit', border:`1px solid ${B.border}`, background:'transparent', color:B.blue }}>📊 Payer Report</button>}
           {['dashboard','list','calendar'].map(v=>(
             <button key={v} onClick={()=>setView(v)} style={{ padding:'7px 14px', borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit', border:`1px solid ${view===v?B.red:B.border}`, background:view===v?'#FFF5F2':'transparent', color:view===v?B.red:B.gray, fontWeight:view===v?700:400 }}>
               {v==='dashboard'?'📊 Overview':v==='list'?'📋 Patient List':'📅 Follow-Up Calendar'}
@@ -997,6 +1343,15 @@ export default function AuthTracker() {
 
       {/* Import Panel */}
       {showImport && isLeaderOrAbove && <ImportPanel onImportComplete={()=>{ loadRecords(); setShowImport(false); }} />}
+
+      {/* Assignment Panel */}
+      {showAssign && isLeaderOrAbove && (
+        <AssignmentPanel
+          records={augmented}
+          onBulkAssign={()=>{ loadRecords(); }}
+          onClose={()=>setShowAssign(false)}
+        />
+      )}
 
       {/* Edit Form */}
       {view==='edit' && editingRecord && (
@@ -1113,6 +1468,9 @@ export default function AuthTracker() {
       {/* Dashboard */}
       {view==='dashboard' && (
         <>
+          {/* Daily Task List */}
+          <DailyTaskList records={augmented} currentUser={isLeaderOrAbove ? null : profile?.full_name} />
+
           {/* KPI Row */}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:10, marginBottom:24 }}>
             {[
