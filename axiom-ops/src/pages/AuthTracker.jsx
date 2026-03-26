@@ -58,6 +58,7 @@ function priorityOf(rec) {
   if (txRem > 0 && txRem <= 3) return 'visits_low';
   if (followToday || overdue) return 'followup_due';
   if (exp !== null && exp <= 30) return 'expiring_soon';
+  if (rec.auth_status === 'discharged') return 'discharged';
   if (rec.auth_status === 'pending') return 'pending';
   return 'ok';
 }
@@ -1281,7 +1282,7 @@ export default function AuthTracker() {
 
   const visible = useMemo(() => {
     let list = augmented;
-    if (!showExpired) list = list.filter(r => r.priority !== 'expired');
+    if (!showExpired) list = list.filter(r => r.priority !== 'expired' && r.priority !== 'discharged');
     if (filterPayer !== 'all') {
       if (filterPayer === 'Unknown') {
         list = list.filter(r => !r.payer || r.payer === 'Unknown' || r.payer.length <= 2);
@@ -1297,14 +1298,15 @@ export default function AuthTracker() {
   }, [augmented, showExpired, filterPayer, filterRegion, filterPriority, filterAssignee, search]);
 
   // KPIs (exclude expired from active counts)
-  const active = augmented.filter(r => r.priority !== 'expired');
+  const active = augmented.filter(r => r.priority !== 'expired' && r.priority !== 'discharged');
   const kpis = {
-    noAuth:    active.filter(r => !r.auth_number).length,
-    critical:  active.filter(r => ['expiring_critical','visits_low'].includes(r.priority)).length,
-    followup:  active.filter(r => r.priority === 'followup_due').length,
-    expiring:  active.filter(r => r.priority === 'expiring_soon').length,
-    expired:   augmented.filter(r => r.priority === 'expired').length,
-    total:     active.length,
+    noAuth:     active.filter(r => !r.auth_number).length,
+    critical:   active.filter(r => ['expiring_critical','visits_low'].includes(r.priority)).length,
+    followup:   active.filter(r => r.priority === 'followup_due').length,
+    expiring:   active.filter(r => r.priority === 'expiring_soon').length,
+    expired:    augmented.filter(r => r.priority === 'expired').length,
+    discharged: augmented.filter(r => r.priority === 'discharged').length,
+    total:      active.length,
   };
 
   // Follow-up queue — due today + overdue
@@ -1516,7 +1518,7 @@ export default function AuthTracker() {
           <div style={{ fontSize:12, fontWeight:700, color:B.lightGray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:10 }}>Tracking</div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:14 }}>
             {[
-              {label:'Auth Status',key:'auth_status',type:'select',opts:['active','pending','approved','denied','expired','renewal_submitted']},
+              {label:'Auth Status',key:'auth_status',type:'select',opts:['active','pending','approved','denied','expired','renewal_submitted','discharged']},
               {label:'Payer',key:'payer',type:'select_payer'},
               {label:'Assigned To',key:'assigned_to',type:'select_team'},
               {label:'PCP',key:'pcp',type:'text',ph:'e.g. conviva, centerwell'},
@@ -1566,7 +1568,8 @@ export default function AuthTracker() {
               { label:'Critical',         count:kpis.critical,  color:'#EA580C', bg:'#FFF7ED', border:'#FED7AA', icon:'⚠️', f:'expiring_critical',  desc:'Expiring ≤7d or ≤3 visits' },
               { label:'Follow-Up Due',    count:kpis.followup,  color:B.purple,  bg:'#F5F3FF', border:'#DDD6FE', icon:'📞', f:'followup_due',       desc:'Today + overdue' },
               { label:'Expiring ≤30d',    count:kpis.expiring,  color:B.yellow,  bg:'#FFFBEB', border:'#FDE68A', icon:'🕐', f:'expiring_soon',      desc:'Needs renewal attention' },
-              { label:'Expired',          count:kpis.expired,   color:'#9CA3AF', bg:'#F9FAFB', border:'#E5E7EB', icon:'⏰', f:'expired',            desc:'Auth past end date' },
+              { label:'Expired',          count:kpis.expired,    color:'#9CA3AF', bg:'#F9FAFB', border:'#E5E7EB', icon:'⏰', f:'expired',     desc:'Auth past end date' },
+              { label:'Discharged',       count:kpis.discharged||0, color:'#6B7280', bg:'#F3F4F6', border:'#D1D5DB', icon:'📤', f:'discharged', desc:'No longer active' },
               { label:'Active',           count:kpis.total,     color:B.green,   bg:'#F0FDF4', border:'#BBF7D0', icon:'✅', f:'all',                desc:'Total active patients' },
             ].map(m => (
               <div key={m.label} onClick={()=>{ setFilterPriority(m.f==='all'?'all':m.f); if(m.f==='expired') setShowExpired(true); setView('list'); }}
@@ -1763,7 +1766,7 @@ export default function AuthTracker() {
               {TEAM_MEMBERS.map(n=><option key={n} value={n}>{n.split(' ')[0]}</option>)}
             </select>
             <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, color:B.gray, cursor:'pointer', padding:'7px 10px', border:`1px solid ${B.border}`, borderRadius:8, background:showExpired?'#F9FAFB':'transparent' }}>
-              <input type="checkbox" checked={showExpired} onChange={e=>setShowExpired(e.target.checked)} /> Show Expired
+              <input type="checkbox" checked={showExpired} onChange={e=>setShowExpired(e.target.checked)} /> Show Expired / Discharged
             </label>
             <button onClick={()=>{setSearch('');setFilterPriority('all');setFilterPayer('all');setFilterRegion('all');setFilterAssignee('all');}} style={{ background:'none', border:`1px solid ${B.border}`, borderRadius:8, color:B.gray, padding:'7px 10px', fontSize:12, cursor:'pointer', fontFamily:'inherit' }}>Clear</button>
             <span style={{ fontSize:11, color:B.lightGray, marginLeft:'auto' }}>{visible.length} patients</span>
