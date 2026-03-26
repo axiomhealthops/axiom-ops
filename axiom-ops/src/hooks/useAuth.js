@@ -5,15 +5,18 @@ const AuthContext = createContext({});
 
 export function AuthProvider({ children }) {
   const [user, setUser]           = useState(null);
-  const [profile, setProfile]     = useState(null); // full user profile from coordinators table
+  const [profile, setProfile]     = useState(null);
   const [loading, setLoading]     = useState(true);
 
   const fetchProfile = useCallback(async (userId) => {
-    const { data } = await supabase
+    console.log('FETCHING PROFILE FOR:', userId);
+    const { data, error } = await supabase
       .from('coordinators')
       .select('*')
       .eq('user_id', userId)
       .single();
+    console.log('PROFILE DATA:', data);
+    console.log('PROFILE ERROR:', error);
     setProfile(data || null);
     setLoading(false);
   }, []);
@@ -36,32 +39,32 @@ export function AuthProvider({ children }) {
 
   // ── Role helpers ────────────────────────────────────────────
   const role        = profile?.role || 'coordinator';
-  const team        = profile?.team || null; // 'auth' | 'care_coord' | 'intake' | null
+  const team        = profile?.team || null;
 
-  const isSuperAdmin = role === 'super_admin';
-  const isCEO        = role === 'ceo';
-  const isDirector   = role === 'director' || isSuperAdmin;
-  const isManager    = role === 'regional_mgr' || isDirector;
-  const isPodLeader  = role === 'pod_leader';
-  const isTeamLeader = role === 'team_leader';
-  const isTeamMember = role === 'team_member';
+  const isSuperAdmin  = role === 'super_admin';
+  const isCEO         = role === 'ceo';
+  const isDirector    = role === 'director' || isSuperAdmin;
+  const isManager     = role === 'regional_mgr' || isDirector;
+  const isPodLeader   = role === 'pod_leader';
+  const isTeamLeader  = role === 'team_leader';
+  const isTeamMember  = role === 'team_member';
   const isCoordinator = role === 'coordinator';
 
   // ── Permission matrix ─────────────────────────────────────
-  const canViewDashboard      = ['super_admin','ceo','director','regional_mgr','admin','pod_leader','team_leader'].includes(role);
-  const canViewFinancials     = ['super_admin','ceo','director'].includes(role);
-  const canManageUsers        = isSuperAdmin;
-  const canManageTeam         = isPodLeader || isTeamLeader;
-  const canEditSettings       = ['super_admin','director'].includes(role);
-  const canViewAllRegions     = ['super_admin','ceo','director'].includes(role);
-  const canViewAllTeams       = isPodLeader || isDirector || isSuperAdmin;
-  const userRegion            = canViewAllRegions ? null : profile?.region;
-  const canViewCensus         = ['super_admin','ceo','director','regional_mgr','pod_leader','team_leader','team_member'].includes(role);
-  const canViewVisitSchedule  = ['super_admin','ceo','director','regional_mgr','pod_leader','team_leader','team_member'].includes(role);
-  const canViewAuthTracker    = ['super_admin','director','regional_mgr','pod_leader','team_leader'].includes(role) || (isTeamMember && team === 'auth');
+  const canViewDashboard        = ['super_admin','ceo','director','regional_mgr','admin','pod_leader','team_leader'].includes(role);
+  const canViewFinancials       = ['super_admin','ceo','director'].includes(role);
+  const canManageUsers          = isSuperAdmin;
+  const canManageTeam           = isPodLeader || isTeamLeader;
+  const canEditSettings         = ['super_admin','director'].includes(role);
+  const canViewAllRegions       = ['super_admin','ceo','director'].includes(role);
+  const canViewAllTeams         = isPodLeader || isDirector || isSuperAdmin;
+  const userRegion              = canViewAllRegions ? null : profile?.region;
+  const canViewCensus           = ['super_admin','ceo','director','regional_mgr','pod_leader','team_leader','team_member'].includes(role);
+  const canViewVisitSchedule    = ['super_admin','ceo','director','regional_mgr','pod_leader','team_leader','team_member'].includes(role);
+  const canViewAuthTracker      = ['super_admin','director','regional_mgr','pod_leader','team_leader'].includes(role) || (isTeamMember && team === 'auth');
   const canViewCareCoordMetrics = ['super_admin','director','regional_mgr','pod_leader','team_leader'].includes(role);
-  const canSubmitReport       = ['coordinator','team_member'].includes(role);
-  const canViewTeamReports    = isPodLeader || isTeamLeader || isDirector || isSuperAdmin;
+  const canSubmitReport         = ['coordinator','team_member'].includes(role);
+  const canViewTeamReports      = isPodLeader || isTeamLeader || isDirector || isSuperAdmin;
 
   async function signIn(email, password) {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -72,14 +75,10 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut();
   }
 
-  // ── User Management (super_admin only) ──────────────────────
   async function createUser({ email, password, name, role, region, phone }) {
-    // Create auth user via Supabase admin (uses service role in production)
-    // For now, sign up then set profile
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) return { error };
 
-    // Insert profile into coordinators table
     const { error: profileError } = await supabase.from('coordinators').insert({
       user_id: data.user.id,
       name,
@@ -128,7 +127,6 @@ export function AuthProvider({ children }) {
       canEditSettings, canViewAllRegions, canViewAllTeams, userRegion,
       canViewCensus, canViewVisitSchedule, canViewAuthTracker,
       canViewCareCoordMetrics, canSubmitReport, canViewTeamReports,
-      // Keep backward compat
       coordinator: profile,
       signIn, signOut,
       createUser, updateUserStatus, updateUserRole, updateUserProfile,
