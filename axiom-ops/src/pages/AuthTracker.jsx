@@ -13,7 +13,9 @@ const B = {
 const PAYER_COLORS = {
   'Humana':'#0066CC','CarePlus':'#009B77','Medicare/Devoted':'#1565C0',
   'FL Health Care Plans':'#2E7D32','Aetna':'#7B1FA2',
-  'Cigna':'#E65100','HealthFirst':'#00838F','Other':'#6B7280',
+  'Cigna':'#E65100','HealthFirst':'#00838F','Simply':'#0891B2',
+  'Medicare':'#64748B','Private Pay':'#92400E','Private Pay/LOA':'#78350F',
+  'Other':'#6B7280','Unknown':'#9CA3AF',
 };
 const PAYER_PHONES = {
   'Humana':'1-800-448-6262','CarePlus':'1-800-794-5907',
@@ -148,6 +150,89 @@ function parseAuthExcel(XLSX, arrayBuffer, payer) {
   return [...seen.values()];
 }
 
+// ── Payer Select with custom payer management ─────────────────
+const DEFAULT_PAYERS = [
+  'Humana','CarePlus','Medicare/Devoted','FL Health Care Plans',
+  'Aetna','Cigna','HealthFirst','Simply','Medicare',
+  'Private Pay','Private Pay/LOA','Other',
+];
+
+function useCustomPayers() {
+  const [customPayers, setCustomPayers] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('axiom_custom_payers') || '[]'); } catch { return []; }
+  });
+  const addPayer = (name) => {
+    const trimmed = name.trim();
+    if (!trimmed || customPayers.includes(trimmed) || DEFAULT_PAYERS.includes(trimmed)) return false;
+    const updated = [...customPayers, trimmed].sort();
+    setCustomPayers(updated);
+    try { localStorage.setItem('axiom_custom_payers', JSON.stringify(updated)); } catch {}
+    return true;
+  };
+  const removePayer = (name) => {
+    const updated = customPayers.filter(p => p !== name);
+    setCustomPayers(updated);
+    try { localStorage.setItem('axiom_custom_payers', JSON.stringify(updated)); } catch {}
+  };
+  return { customPayers, addPayer, removePayer, allPayers: [...DEFAULT_PAYERS, ...customPayers] };
+}
+
+function PayerSelect({ value, onChange }) {
+  const { allPayers, customPayers, addPayer, removePayer } = useCustomPayers();
+  const [showAdd, setShowAdd] = useState(false);
+  const [newPayer, setNewPayer] = useState('');
+  const [addError, setAddError] = useState('');
+
+  const handleAdd = () => {
+    const ok = addPayer(newPayer);
+    if (ok) { onChange(newPayer.trim()); setNewPayer(''); setShowAdd(false); setAddError(''); }
+    else { setAddError('Payer already exists or is invalid.'); }
+  };
+
+  return (
+    <div>
+      <div style={{ display:'flex', gap:6 }}>
+        <select value={value||''} onChange={e=>{ if(e.target.value==='__add__'){setShowAdd(true);}else{onChange(e.target.value);}}}
+          style={{ flex:1, padding:'8px 10px', border:`1.5px solid ${value?B.red:B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}>
+          <option value="">Select payer...</option>
+          {DEFAULT_PAYERS.map(p=><option key={p} value={p}>{p}</option>)}
+          {customPayers.length>0&&<optgroup label="Custom Payers">
+            {customPayers.map(p=><option key={p} value={p}>{p}</option>)}
+          </optgroup>}
+          <option value="__add__">+ Add New Payer...</option>
+        </select>
+      </div>
+      {showAdd&&(
+        <div style={{ marginTop:8, background:'#FBF7F6', border:`1px solid ${B.border}`, borderRadius:10, padding:'12px 14px' }}>
+          <div style={{ fontSize:12, fontWeight:700, color:B.black, marginBottom:8 }}>Add New Payer Classification</div>
+          <div style={{ display:'flex', gap:8 }}>
+            <input value={newPayer} onChange={e=>{setNewPayer(e.target.value);setAddError('');}}
+              onKeyDown={e=>{ if(e.key==='Enter') handleAdd(); if(e.key==='Escape') setShowAdd(false); }}
+              placeholder="e.g. United Healthcare, Tricare..." autoFocus
+              style={{ flex:1, padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', color:B.black }} />
+            <button onClick={handleAdd} style={{ background:`linear-gradient(135deg,${B.red},${B.darkRed})`, border:'none', borderRadius:8, color:'#fff', padding:'7px 14px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>Add</button>
+            <button onClick={()=>{setShowAdd(false);setNewPayer('');setAddError('');}} style={{ background:'none', border:`1px solid ${B.border}`, borderRadius:8, color:B.gray, padding:'7px 10px', fontSize:12, cursor:'pointer', fontFamily:'inherit' }}>Cancel</button>
+          </div>
+          {addError&&<div style={{ fontSize:11, color:B.danger, marginTop:5 }}>{addError}</div>}
+          {customPayers.length>0&&(
+            <div style={{ marginTop:10 }}>
+              <div style={{ fontSize:10, color:B.lightGray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:5 }}>Custom Payers</div>
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                {customPayers.map(p=>(
+                  <div key={p} style={{ display:'flex', alignItems:'center', gap:5, background:'#fff', border:`1px solid ${B.border}`, borderRadius:20, padding:'3px 10px', fontSize:12 }}>
+                    <span style={{ color:B.black }}>{p}</span>
+                    <button onClick={()=>removePayer(p)} style={{ background:'none', border:'none', color:B.danger, cursor:'pointer', fontSize:14, lineHeight:1, padding:0 }}>×</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Import Panel Component ────────────────────────────────────
 const IMPORT_CONFIGS = [
   { key:'ethel_humana',   label:"Ethel — Humana",               assignTo:'Ethel Camposano', color:'#0066CC', hint:'HUMANA_AUTH_TRACKING.xlsx' },
@@ -183,7 +268,9 @@ const INS_CODE_MAP = {
   'HEALTHFIRST':'HealthFirst',
   'CIG':'Cigna','CIGA':'Cigna','CIGB':'Cigna','CIGG':'Cigna','CIGT':'Cigna',
   'CIGNA':'Cigna','HCIG':'Cigna','CMA':'Cigna',
-  'PPA':'Other','PPB':'Other','PPG':'Other',
+  'PPA':'Private Pay','PPB':'Private Pay','PPG':'Private Pay',
+  'PP':'Private Pay','PPAY':'Private Pay','PRIV':'Private Pay',
+  'PLOA':'Private Pay/LOA','PPLOA':'Private Pay/LOA',
 };
 
 function resolveRegion(code) {
@@ -1251,7 +1338,8 @@ export default function AuthTracker() {
 
   // Payer breakdown
   const KNOWN_PAYERS = new Set(['Humana','CarePlus','Medicare/Devoted','FL Health Care Plans',
-    'Aetna','Cigna','HealthFirst','Simply','Medicare','Other','Unknown']);
+    'Aetna','Cigna','HealthFirst','Simply','Medicare',
+    'Private Pay','Private Pay/LOA','Other','Unknown']);
 
   const payerBreakdown = useMemo(() => {
     const map = {};
@@ -1439,7 +1527,7 @@ export default function AuthTracker() {
               <div key={f.key}>
                 <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>{f.label}</label>
                 {f.type==='select'?<select value={editForm[f.key]||''} onChange={e=>setField(f.key,e.target.value)} style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}>{f.opts.map(o=><option key={o} value={o}>{o}</option>)}</select>
-                :f.type==='select_payer'?<select value={editForm[f.key]||''} onChange={e=>setField(f.key,e.target.value)} style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}><option value="">Select payer...</option>{['Humana','CarePlus','Medicare/Devoted','FL Health Care Plans','Aetna','Cigna','HealthFirst','Simply','Medicare','Other'].map(o=><option key={o} value={o}>{o}</option>)}</select>
+                :f.type==='select_payer'?<PayerSelect value={editForm[f.key]||''} onChange={v=>setField(f.key,v)} />
                 :f.type==='select_team'?<select value={editForm[f.key]||''} onChange={e=>setField(f.key,e.target.value)} style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}><option value="">Unassigned</option>{TEAM_MEMBERS.map(n=><option key={n} value={n}>{n}</option>)}</select>
                 :<input type={f.type} value={editForm[f.key]||''} placeholder={f.ph} onChange={e=>setField(f.key,e.target.value)} style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', color:B.black, boxSizing:'border-box' }} />}
               </div>
@@ -1662,6 +1750,8 @@ export default function AuthTracker() {
               <option value="Cigna">Cigna</option>
               <option value="HealthFirst">HealthFirst</option>
               <option value="Simply">Simply</option>
+              <option value="Private Pay">Private Pay</option>
+              <option value="Private Pay/LOA">Private Pay/LOA</option>
               <option value="Unknown">⚠ Unknown Payer</option>
             </select>
             <select value={filterRegion} onChange={e=>setFilterRegion(e.target.value)} style={{ padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', color:B.black, outline:'none', background:'#fff' }}>
