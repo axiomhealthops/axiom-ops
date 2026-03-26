@@ -104,8 +104,10 @@ export function useOpsData() {
 
   // ── Write: upload full census ───────────────────────────────
   const uploadCensus = async (patients) => {
-    await supabase.from('patient_census').delete().neq('id','00000000-0000-0000-0000-000000000000');
     if (!patients?.length) return;
+    try {
+      await supabase.from('patient_census').delete().gt('uploaded_at', '2000-01-01');
+    } catch(e) { /* ignore if empty */ }
     const rows = patients.map(p => ({
       patient_name: p.name,
       region:       p.region || null,
@@ -121,9 +123,11 @@ export function useOpsData() {
 
   // ── Write: upload visit schedule from parsed Pariox data ────
   const uploadVisitSchedule = async (parsedData) => {
-    // Delete all existing visit rows
-    await supabase.from('visit_schedule').delete().neq('id','00000000-0000-0000-0000-000000000000');
     if (!parsedData?.regionData) return;
+    // Delete all existing rows — use gt to avoid empty-table errors
+    try {
+      await supabase.from('visit_schedule').delete().gt('uploaded_at', '2000-01-01');
+    } catch(e) { /* ignore if empty */ }
 
     const today = new Date().toISOString().split('T')[0];
     const rows = [];
