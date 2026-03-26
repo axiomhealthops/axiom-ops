@@ -45,10 +45,12 @@ const PRIORITY_META = {
   expiring_soon:    { label:'Expiring ≤30d',  color:B.yellow,  bg:'#FFFBEB', border:'#FDE68A', icon:'🕐' },
   expired:          { label:'Expired',        color:'#9CA3AF', bg:'#F9FAFB', border:'#E5E7EB', icon:'⏰' },
   pending:          { label:'Pending',        color:B.blue,    bg:'#EFF6FF', border:'#BFDBFE', icon:'🔄' },
+  discharged:       { label:'Discharged',     color:'#6B7280', bg:'#F3F4F6', border:'#D1D5DB', icon:'📤' },
   ok:               { label:'Active',         color:B.green,   bg:'#F0FDF4', border:'#BBF7D0', icon:'✅' },
 };
 
 function getPriority(r) {
+  if (r.auth_status === 'discharged') return 'discharged';
   if (!r.auth_number) return 'no_auth';
   const exp = daysUntil(r.auth_thru);
   const txRem = (r.tx_approved||0)-(r.tx_used||0);
@@ -199,7 +201,7 @@ export function AuthDashboard() {
       .sort((a,b) => (PRIORITY_ORDER[a.priority]||9)-(PRIORITY_ORDER[b.priority]||9));
   }, [allRecords, userName]);
 
-  const active = myRecords.filter(r => r.priority !== 'expired');
+  const active = myRecords.filter(r => r.priority !== 'expired' && r.priority !== 'discharged');
 
   // Task buckets
   const todayStr   = new Date().toDateString();
@@ -221,7 +223,7 @@ export function AuthDashboard() {
 
   const visible = useMemo(() => {
     let list = myRecords;
-    if (!showExpired) list = list.filter(r => r.priority !== 'expired');
+    if (!showExpired) list = list.filter(r => r.priority !== 'expired' && r.priority !== 'discharged');
     if (filterPriority !== 'all') list = list.filter(r => r.priority === filterPriority);
     if (filterPayer !== 'all') list = list.filter(r => r.payer === filterPayer);
     if (search) list = list.filter(r => (r.patient_name||'').toLowerCase().includes(search.toLowerCase())||(r.auth_number||'').includes(search));
@@ -328,7 +330,7 @@ export function AuthDashboard() {
               {payers.map(p=><option key={p} value={p}>{p}</option>)}
             </select>
             <label style={{ display:'flex', alignItems:'center', gap:5, fontSize:12, color:B.gray, cursor:'pointer' }}>
-              <input type="checkbox" checked={showExpired} onChange={e=>setShowExpired(e.target.checked)} /> Expired
+              <input type="checkbox" checked={showExpired} onChange={e=>setShowExpired(e.target.checked)} /> Expired / Discharged
             </label>
             <span style={{ fontSize:11, color:B.lightGray }}>{visible.length} shown</span>
           </div>
