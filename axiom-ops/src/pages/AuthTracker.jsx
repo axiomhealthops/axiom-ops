@@ -296,36 +296,76 @@ function parseEthelFormat(XLSX, arrayBuffer, payer, assignTo) {
 }
 
 // ── Parser: Carla's weekly report ─────────────────────────────
+// Two column formats exist across sheets:
+// Old (Feb 2-15):  [name, address, disc, ins_code, soc, pcp, status, comments]
+// New (Feb 16+):   [name, address, disc, region, ref_source, soc, insurance, status, comments]
 function parseCarlaFormat(XLSX, arrayBuffer, assignTo) {
   const wb = XLSX.read(new Uint8Array(arrayBuffer), { type:'array', cellDates:true });
   const allRecords = [];
+
   for (const sheetName of wb.SheetNames) {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1, defval:null });
+    if (!rows.length) continue;
+
+    const header = (rows[0] || []).map(c => String(c||'').toLowerCase().trim());
+    const isNewFmt = header.includes('region') || header.includes('insurance');
+
     for (const row of rows) {
       if (!row[0] || typeof row[0] !== 'string') continue;
-      if (!row[0].includes(',') || row[0] === 'Patient Name ') continue;
-      // cols: name, address(zip:city), disc, ins_code, soc_date, pcp, status, comments
-      const insCode = String(row[3]||'').trim();
-      const rawPayer = resolveInsCode(insCode);
-      // If payer resolved to a single letter, it's actually a region code — mark as Unknown
-      const payer = rawPayer.length <= 2 ? 'Unknown' : rawPayer;
-      // Extract region from insurance code suffix: HUG→G, CPA→A, CPV→V
-      let region = '';
-      const rc = insCode.replace(/^[A-Za-z]{2,3}/, '').replace(/[^A-Z0-9]/gi,'').toUpperCase();
-      if (rc && rc.length <= 3 && rc !== payer.toUpperCase()) region = rc;
+      if (!row[0].includes(',') || row[0].startsWith('Patient Name')) continue;
+
+      let insCode, region, statusVal, notesVal, fullPayerName;
+
+      if (isNewFmt) {
+        region = String(row[3]||'').replace(/=right.*$/i,'').trim().toUpperCase();
+        if (region.length > 4 || region.includes('=')) region = '';
+        insCode = String(row[4]||'').trim();
+        fullPayerName = String(row[6]||'').trim().toLowerCase();
+        statusVal = String(row[7]||'').trim();
+        notesVal = String(row[8]||'').trim();
+      } else {
+        insCode = String(row[3]||'').trim();
+        region = '';
+        fullPayerName = '';
+        statusVal = String(row[6]||'').trim();
+        notesVal = String(row[7]||'').trim();
+      }
+
+      let payer = resolveInsCode(insCode);
+
+      // If payer is still short/unknown, try the spelled-out name in col 6
+      if ((payer === 'Unknown' || payer.length <= 2) && fullPayerName) {
+        if (fullPayerName.includes('humana') || fullPayerName.includes('metro')) payer = 'Humana';
+        else if (fullPayerName.includes('careplus')) payer = 'CarePlus';
+        else if (fullPayerName.includes('aetna')) payer = 'Aetna';
+        else if (fullPayerName.includes('devoted')) payer = 'Medicare/Devoted';
+        else if (fullPayerName.includes('cigna')) payer = 'Cigna';
+        else if (fullPayerName.includes('fhcp') || fullPayerName.includes('health care')) payer = 'FL Health Care Plans';
+        else if (fullPayerName.includes('healthfirst')) payer = 'HealthFirst';
+        else if (fullPayerName.includes('simply')) payer = 'Simply';
+        else if (fullPayerName.includes('medicare')) payer = 'Medicare';
+        else if (fullPayerName.includes('conviva') || fullPayerName.includes('wellmed') || fullPayerName.includes('optum') || fullPayerName.includes('vip')) payer = 'Humana';
+      }
+      if (payer.length <= 2) payer = 'Unknown';
+
+      // Extract region from ins code suffix if not already set
+      if (!region) {
+        const rc = insCode.replace(/^[A-Za-z]{2,3}/, '').replace(/[^A-Z0-9]/g, '').toUpperCase();
+        if (rc && rc.length <= 3) region = rc;
+      }
+
       allRecords.push({
         patient_name: row[0].trim(),
         payer,
-        region,
+        region: region || '',
         assigned_to: assignTo,
-        pcp: String(row[5]||'').trim() || null,
-        auth_status: String(row[6]||'').toLowerCase().includes('active') ? 'active' : 'pending',
-        notes: String(row[7]||'').trim() || null,
-        raw_auth_string: `Week: ${sheetName} | Ins: ${insCode} | Status: ${row[6]||''} | ${row[7]||''}`.slice(0,300),
+        auth_status: statusVal.toLowerCase().includes('active') ? 'active' : 'pending',
+        notes: notesVal || null,
+        raw_auth_string: ('Week:' + sheetName + ' Ins:' + insCode + ' Status:' + statusVal + ' ' + notesVal).slice(0,300),
       });
     }
   }
-  // Deduplicate — keep last (most recent week)
+
   const seen = new Map();
   for (const r of allRecords) seen.set(r.patient_name.toLowerCase().trim(), r);
   return [...seen.values()];
