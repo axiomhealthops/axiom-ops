@@ -15,19 +15,7 @@ export default function VisitSchedule() {
   const [search, setSearch] = useState('');
   const [view, setView] = useState('table');
 
-  if (loading) return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:60, color:B.lightGray, fontFamily:"'DM Sans',sans-serif" }}>
-      Loading visit schedule...
-    </div>
-  );
-
-  // Derive summary stats from Supabase rows
-  const totalScheduled = visitSchedule.length;
-  const totalCompleted = visitSchedule.filter(v => (v.status||'').toLowerCase().startsWith('completed')).length;
-  const totalMissed    = visitSchedule.filter(v => { const s=(v.status||'').toLowerCase(); return s.includes('missed')||s.includes('cancel')||s.includes('no show'); }).length;
-  const completionPct  = totalScheduled > 0 ? Math.round(totalCompleted/totalScheduled*100) : 0;
-
-  // Build region data from rows
+  // ALL hooks must be before any early returns
   const regionData = useMemo(() => {
     const map = {};
     visitSchedule.forEach(v => {
@@ -45,20 +33,11 @@ export default function VisitSchedule() {
     });
     const result = {};
     for (const [region, data] of Object.entries(map)) {
-      result[region] = {
-        scheduled: data.scheduled,
-        completed: data.completed,
-        clinicians: data.clinicians.size,
-        patients: data.patients.size,
-        clinicianList: Object.entries(data.clinicianMap).map(([name,d]) => ({ name, scheduled:d.scheduled, completed:d.completed })),
-      };
+      result[region] = { scheduled:data.scheduled, completed:data.completed, clinicians:data.clinicians.size, patients:data.patients.size, clinicianList:Object.entries(data.clinicianMap).map(([name,d])=>({name,scheduled:d.scheduled,completed:d.completed})) };
     }
     return result;
   }, [visitSchedule]);
 
-  const regions = Object.keys(regionData).sort();
-
-  // Daily trend from rows
   const dailyTrend = useMemo(() => {
     const map = {};
     visitSchedule.forEach(v => {
@@ -70,27 +49,51 @@ export default function VisitSchedule() {
     });
     return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).slice(-7).map(([date,data]) => ({
       day: new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'numeric',day:'numeric'}),
-      visits: data.completed,
-      scheduled: data.scheduled,
+      visits: data.completed, scheduled: data.scheduled,
     }));
   }, [visitSchedule]);
 
-  // Filtered visit rows
-  const filteredVisits = visitSchedule
-    .filter(v => filterRegion === 'all' || v.region === filterRegion)
-    .filter(v => {
-      if (filterStatus === 'all') return true;
-      const s = (v.status||'').toLowerCase();
-      if (filterStatus === 'completed') return s.startsWith('completed');
-      if (filterStatus === 'missed') return s.includes('missed')||s.includes('cancel')||s.includes('no show');
-      if (filterStatus === 'scheduled') return s.includes('scheduled');
-      return true;
-    })
-    .filter(v => !search || (v.patient_name||'').toLowerCase().includes(search.toLowerCase()) || (v.coordinator||'').toLowerCase().includes(search.toLowerCase()));
+  const filteredVisits = useMemo(() => {
+    return visitSchedule
+      .filter(v => filterRegion === 'all' || v.region === filterRegion)
+      .filter(v => {
+        if (filterStatus === 'all') return true;
+        const s = (v.status||'').toLowerCase();
+        if (filterStatus === 'completed') return s.startsWith('completed');
+        if (filterStatus === 'missed') return s.includes('missed')||s.includes('cancel')||s.includes('no show');
+        if (filterStatus === 'scheduled') return s.includes('scheduled');
+        return true;
+      })
+      .filter(v => !search || (v.patient_name||'').toLowerCase().includes(search.toLowerCase()) || (v.coordinator||'').toLowerCase().includes(search.toLowerCase()));
+  }, [visitSchedule, filterRegion, filterStatus, search]);
+
+  const clinicianStats = useMemo(() => {
+    const map = {};
+    visitSchedule.filter(v => filterRegion === 'all' || v.region === filterRegion).forEach(v => {
+      const name = v.coordinator || 'Unknown';
+      if (!map[name]) map[name] = { scheduled:0, completed:0, region:v.region };
+      map[name].scheduled++;
+      if ((v.status||'').toLowerCase().startsWith('completed')) map[name].completed++;
+    });
+    return Object.entries(map).sort(([,a],[,b])=>b.scheduled-a.scheduled);
+  }, [visitSchedule, filterRegion]);
+
+  // Derived stats — after hooks, before early return is fine
+  const totalScheduled = visitSchedule.length;
+  const totalCompleted = visitSchedule.filter(v=>(v.status||'').toLowerCase().startsWith('completed')).length;
+  const totalMissed    = visitSchedule.filter(v=>{ const s=(v.status||'').toLowerCase(); return s.includes('missed')||s.includes('cancel')||s.includes('no show'); }).length;
+  const completionPct  = totalScheduled > 0 ? Math.round(totalCompleted/totalScheduled*100) : 0;
+  const regions        = Object.keys(regionData).sort();
+
+  // Early return AFTER all hooks
+  if (loading) return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:60, color:B.lightGray, fontFamily:"'DM Sans',sans-serif" }}>
+      Loading visit schedule...
+    </div>
+  );
 
   return (
     <div style={{ fontFamily:"'DM Sans',sans-serif" }}>
-      {/* Header */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24 }}>
         <div>
           <h1 style={{ fontSize:22, fontWeight:800, color:B.black, margin:0, marginBottom:4 }}>📅 Visit Schedule</h1>
@@ -100,11 +103,9 @@ export default function VisitSchedule() {
         </div>
         <div style={{ display:'flex', gap:8 }}>
           {['table','clinician','region'].map(v => (
-            <button key={v} onClick={() => setView(v)} style={{
-              padding:'7px 14px', borderRadius:8, border:`1px solid ${view===v?B.red:B.border}`,
-              background:view===v?'#FFF5F2':'transparent', color:view===v?B.red:B.gray,
-              fontSize:12, fontWeight:view===v?700:400, cursor:'pointer', fontFamily:'inherit',
-            }}>{v==='table'?'📋 Schedule':v==='clinician'?'👤 By Clinician':'🗺️ By Region'}</button>
+            <button key={v} onClick={() => setView(v)} style={{ padding:'7px 14px', borderRadius:8, border:`1px solid ${view===v?B.red:B.border}`, background:view===v?'#FFF5F2':'transparent', color:view===v?B.red:B.gray, fontSize:12, fontWeight:view===v?700:400, cursor:'pointer', fontFamily:'inherit' }}>
+              {v==='table'?'📋 Schedule':v==='clinician'?'👤 By Clinician':'🗺️ By Region'}
+            </button>
           ))}
         </div>
       </div>
@@ -120,11 +121,11 @@ export default function VisitSchedule() {
           {/* Summary cards */}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12, marginBottom:24 }}>
             {[
-              { label:'Scheduled', value:totalScheduled, color:B.blue, bg:'#EFF6FF', border:'#BFDBFE' },
-              { label:'Completed', value:totalCompleted, color:B.green, bg:'#F0FDF4', border:'#BBF7D0' },
-              { label:'Remaining', value:Math.max(0,totalScheduled-totalCompleted), color:B.orange, bg:'#FFF7ED', border:'#FED7AA' },
-              { label:'Missed', value:totalMissed, color:B.danger, bg:'#FEF2F2', border:'#FECACA' },
-              { label:'Completion %', value:`${completionPct}%`, color:completionPct>=90?B.green:completionPct>=70?B.yellow:B.danger, bg:'#F9FAFB', border:'#E5E7EB' },
+              {label:'Scheduled',value:totalScheduled,color:B.blue,bg:'#EFF6FF',border:'#BFDBFE'},
+              {label:'Completed',value:totalCompleted,color:B.green,bg:'#F0FDF4',border:'#BBF7D0'},
+              {label:'Remaining',value:Math.max(0,totalScheduled-totalCompleted),color:B.orange,bg:'#FFF7ED',border:'#FED7AA'},
+              {label:'Missed',value:totalMissed,color:B.danger,bg:'#FEF2F2',border:'#FECACA'},
+              {label:'Completion %',value:`${completionPct}%`,color:completionPct>=90?B.green:completionPct>=70?B.yellow:B.danger,bg:'#F9FAFB',border:'#E5E7EB'},
             ].map(m => (
               <div key={m.label} style={{ background:m.bg, border:`1px solid ${m.border}`, borderRadius:12, padding:'16px', textAlign:'center' }}>
                 <div style={{ fontSize:28, fontWeight:800, color:m.color, fontFamily:"'DM Mono',monospace", lineHeight:1 }}>{m.value}</div>
@@ -165,11 +166,9 @@ export default function VisitSchedule() {
           <div style={{ display:'flex', gap:6, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
             <span style={{ fontSize:11, color:B.lightGray }}>Region:</span>
             {['all',...regions].map(r => (
-              <button key={r} onClick={() => setFilterRegion(r)} style={{
-                padding:'5px 10px', borderRadius:6, border:`1px solid ${filterRegion===r?B.red:B.border}`,
-                background:filterRegion===r?'#FFF5F2':'transparent', color:filterRegion===r?B.red:B.gray,
-                fontSize:11, fontWeight:filterRegion===r?700:400, cursor:'pointer', fontFamily:'inherit',
-              }}>{r==='all'?'All':r}</button>
+              <button key={r} onClick={() => setFilterRegion(r)} style={{ padding:'5px 10px', borderRadius:6, border:`1px solid ${filterRegion===r?B.red:B.border}`, background:filterRegion===r?'#FFF5F2':'transparent', color:filterRegion===r?B.red:B.gray, fontSize:11, fontWeight:filterRegion===r?700:400, cursor:'pointer', fontFamily:'inherit' }}>
+                {r==='all'?'All':r}
+              </button>
             ))}
           </div>
 
@@ -208,31 +207,22 @@ export default function VisitSchedule() {
                   <div key={h} style={{ fontSize:10, fontWeight:700, color:B.lightGray, textTransform:'uppercase', letterSpacing:'0.08em' }}>{h}</div>
                 ))}
               </div>
-              {(() => {
-                const clinMap = {};
-                visitSchedule.filter(v=>filterRegion==='all'||v.region===filterRegion).forEach(v => {
-                  const name = v.coordinator || 'Unknown';
-                  if (!clinMap[name]) clinMap[name] = { scheduled:0, completed:0, region:v.region };
-                  clinMap[name].scheduled++;
-                  if ((v.status||'').toLowerCase().startsWith('completed')) clinMap[name].completed++;
-                });
-                return Object.entries(clinMap).sort(([,a],[,b])=>b.scheduled-a.scheduled).map(([name,s]) => {
-                  const pct=s.scheduled>0?Math.round(s.completed/s.scheduled*100):0;
-                  const color=pct>=90?B.green:pct>=50?B.yellow:B.danger;
-                  return (
-                    <div key={name} style={{ display:'grid', gridTemplateColumns:'200px 80px 100px 100px 1fr', padding:'10px 18px', borderBottom:`1px solid #FAF4F2`, alignItems:'center' }}>
-                      <div style={{ fontSize:12, fontWeight:600, color:B.black }}>{name}</div>
-                      <div style={{ fontSize:11, color:B.gray }}>{s.region}</div>
-                      <div style={{ fontSize:14, fontWeight:700, color:B.blue, fontFamily:'monospace' }}>{s.scheduled}</div>
-                      <div style={{ fontSize:14, fontWeight:700, color:B.green, fontFamily:'monospace' }}>{s.completed}</div>
-                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                        <div style={{ flex:1, height:6, background:'#F5EDEB', borderRadius:3, maxWidth:120 }}><div style={{ height:'100%', width:`${pct}%`, background:color, borderRadius:3 }} /></div>
-                        <span style={{ fontSize:12, fontWeight:700, color, minWidth:35 }}>{pct}%</span>
-                      </div>
+              {clinicianStats.map(([name,s]) => {
+                const pct=s.scheduled>0?Math.round(s.completed/s.scheduled*100):0;
+                const color=pct>=90?B.green:pct>=50?B.yellow:B.danger;
+                return (
+                  <div key={name} style={{ display:'grid', gridTemplateColumns:'200px 80px 100px 100px 1fr', padding:'10px 18px', borderBottom:`1px solid #FAF4F2`, alignItems:'center' }}>
+                    <div style={{ fontSize:12, fontWeight:600, color:B.black }}>{name}</div>
+                    <div style={{ fontSize:11, color:B.gray }}>{s.region}</div>
+                    <div style={{ fontSize:14, fontWeight:700, color:B.blue, fontFamily:'monospace' }}>{s.scheduled}</div>
+                    <div style={{ fontSize:14, fontWeight:700, color:B.green, fontFamily:'monospace' }}>{s.completed}</div>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <div style={{ flex:1, height:6, background:'#F5EDEB', borderRadius:3, maxWidth:120 }}><div style={{ height:'100%', width:`${pct}%`, background:color, borderRadius:3 }} /></div>
+                      <span style={{ fontSize:12, fontWeight:700, color, minWidth:35 }}>{pct}%</span>
                     </div>
-                  );
-                });
-              })()}
+                  </div>
+                );
+              })}
             </div>
           )}
 
