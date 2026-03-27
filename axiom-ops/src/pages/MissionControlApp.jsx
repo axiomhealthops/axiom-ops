@@ -5,6 +5,7 @@ import AuthTracker from './AuthTracker';
 import PatientCensus from './PatientCensus';
 import VisitSchedule from './VisitSchedule';
 import CoordinatorApp from './CoordinatorApp';
+import GlobalSearch from './GlobalSearch';
 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10',
@@ -19,10 +20,7 @@ const TEAM_META = {
   intake:     { label:'Intake Team',            color:'#7C3AED', icon:'📥', accent:'#F5F3FF' },
 };
 
-// ── Permission map: what each role+team combo can see ──────────────────────
-// Returns array of nav page ids
 function getAllowedPages(role, team) {
-  // team_member permissions by team
   if (role === 'team_member') {
     const base = ['home', 'census', 'visits'];
     if (team === 'auth')       return [...base, 'authtrack', 'submit'];
@@ -30,7 +28,6 @@ function getAllowedPages(role, team) {
     if (team === 'intake')     return [...base, 'submit'];
     return base;
   }
-  // team_leader permissions by team
   if (role === 'team_leader') {
     return ['home', 'census', 'visits', 'authtrack', 'reports', 'actions'];
   }
@@ -137,7 +134,7 @@ function MCsidebar({ activePage, onNavigate, allowedPages, teamMeta, profile, on
   );
 }
 
-// ── Page title bar ─────────────────────────────────────────────────────────
+// ── Top bar with global search ─────────────────────────────────────────────
 function TopBar({ title, teamMeta }) {
   const [time, setTime] = useState(new Date());
   useState(() => {
@@ -150,10 +147,18 @@ function TopBar({ title, teamMeta }) {
       background: B.card, borderBottom: `1px solid ${B.border}`,
       padding: '10px 24px', display: 'flex', alignItems: 'center',
       justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 40,
-      boxShadow: '0 1px 4px rgba(139,26,16,0.06)',
+      boxShadow: '0 1px 4px rgba(139,26,16,0.06)', gap: 16,
     }}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: B.black }}>{title}</div>
-      <div style={{ textAlign: 'right', fontFamily: "'DM Mono', monospace" }}>
+      {/* Page title */}
+      <div style={{ fontSize: 14, fontWeight: 700, color: B.black, flexShrink: 0 }}>{title}</div>
+
+      {/* Global patient search — center */}
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+        <GlobalSearch />
+      </div>
+
+      {/* Clock — right */}
+      <div style={{ textAlign: 'right', fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: B.red }}>
           {time.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}
         </div>
@@ -165,7 +170,6 @@ function TopBar({ title, teamMeta }) {
   );
 }
 
-// ── Page titles ────────────────────────────────────────────────────────────
 const PAGE_TITLES = {
   home:     'Dashboard',
   census:   'Patient Census',
@@ -181,10 +185,8 @@ export default function MissionControlApp() {
   const { profile, role, team, signOut } = useAuth();
   const teamMeta = TEAM_META[team] || TEAM_META.auth;
   const allowedPages = getAllowedPages(role, team);
-  const defaultPage  = 'home';
-  const [currentPage, setCurrentPage] = useState(defaultPage);
+  const [currentPage, setCurrentPage] = useState('home');
 
-  // Guard — if somehow user lands here without a valid team, show a friendly error
   if (!team) {
     return (
       <div style={{ minHeight: '100vh', background: B.bg, display: 'flex', alignItems: 'center',
@@ -215,7 +217,6 @@ export default function MissionControlApp() {
       case 'visits':    return <VisitSchedule />;
       case 'authtrack': return <AuthTracker />;
       case 'submit':    return <CoordinatorApp previewMode={false} />;
-      // reports and actions — render placeholders until full integration
       case 'reports':
         return (
           <div style={{ padding: 32, fontFamily: "'DM Sans', sans-serif" }}>
