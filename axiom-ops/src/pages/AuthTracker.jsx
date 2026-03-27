@@ -839,12 +839,12 @@ function ImportPanel({ onImportComplete }) {
               .ilike('patient_name', v.patient_name);
             if (matches && matches.length > 0) {
               const rec = matches[0];
-              await supabase.from('auth_records').update({
-                eval_used: v.eval_completed,
-                tx_used:   v.tx_completed,
-                ra_used:   v.ra_completed,
-                updated_at: new Date().toISOString(),
-              }).eq('id', rec.id);
+              // Never decrease — only update if new value is higher than stored
+              const updates = { updated_at: new Date().toISOString() };
+              if (v.eval_completed > (rec.eval_used||0)) updates.eval_used = v.eval_completed;
+              if (v.tx_completed   > (rec.tx_used||0))   updates.tx_used   = v.tx_completed;
+              if (v.ra_completed   > (rec.ra_used||0))   updates.ra_used   = v.ra_completed;
+              await supabase.from('auth_records').update(updates).eq('id', rec.id);
               synced++;
             }
           }
@@ -858,11 +858,9 @@ function ImportPanel({ onImportComplete }) {
         setProgress(`${cfg.label}: ${records.length} records parsed`);
       }
 
-      setProgress(`Clearing previous records for selected staff...`);
-      const assignees = [...new Set(selectedFiles.map(([key]) => IMPORT_CONFIGS.find(c=>c.key===key)?.assignTo).filter(Boolean))];
-      for (const assignee of assignees) {
-        await supabase.from('auth_records').delete().eq('assigned_to', assignee);
-      }
+      setProgress(`Preparing records for selected staff...`);
+      // We do NOT delete existing records — we upsert to preserve manually-entered data
+      // (auth numbers, call notes, follow-up dates, eval counts entered by coordinators)
 
       setProgress(`Uploading ${allRecords.length} records to Supabase...`);
       const BATCH = 100;
@@ -899,8 +897,49 @@ function ImportPanel({ onImportComplete }) {
           raw_auth_string: r.raw_auth_string||null,
           updated_at: new Date().toISOString(),
         }));
-        const { error: err } = await supabase.from('auth_records').insert(batch);
-        if (err) throw new Error(err.message);
+        // Upsert by patient_name + assigned_to — preserves auth_number, call notes,
+        // follow-up dates, eval_used, tx_used, ra_used that were manually entered
+        const { error: err } = await supabase.from('auth_records').upsert(batch, {
+          onConflict: 'patient_name,assigned_to',
+          ignoreDuplicates: false,
+        });
+        if (err) {
+          // Fallback: if upsert fails (no unique constraint yet), do insert-or-skip
+          for (const row of batch) {
+            const { data: existing } = await supabase.from('auth_records')
+              .select('id,auth_number,last_call_notes,next_follow_up,eval_used,tx_used,ra_used,vob_verified,claim_paid')
+              .eq('patient_name', row.patient_name)
+              .eq('assigned_to', row.assigned_to)
+              .maybeSingle();
+            if (existing) {
+              // Record exists — only update fields that came from the file, preserve manual fields
+              await supabase.from('auth_records').update({
+                payer:   row.payer   || existing.payer,
+                region:  row.region  || existing.region,
+                auth_status: row.auth_status,
+                raw_auth_string: row.raw_auth_string || null,
+                // Preserve these if already set manually:
+                auth_number:    existing.auth_number    || row.auth_number    || null,
+                auth_from:      existing.auth_from      || row.auth_from      || null,
+                auth_thru:      existing.auth_thru      || row.auth_thru      || null,
+                tx_approved:    row.tx_approved > 0 ? row.tx_approved : (existing.tx_approved||0),
+                tx_used:        Math.max(row.tx_used||0, existing.tx_used||0),
+                ra_approved:    row.ra_approved > 0 ? row.ra_approved : (existing.ra_approved||0),
+                ra_used:        Math.max(row.ra_used||0, existing.ra_used||0),
+                eval_approved:  row.eval_approved > 0 ? row.eval_approved : (existing.eval_approved||0),
+                eval_used:      Math.max(row.eval_used||0, existing.eval_used||0),
+                vob_verified:   existing.vob_verified || row.vob_verified || false,
+                claim_paid:     existing.claim_paid   || row.claim_paid   || false,
+                last_call_notes: existing.last_call_notes || null,
+                next_follow_up:  existing.next_follow_up  || null,
+                updated_at: new Date().toISOString(),
+              }).eq('id', existing.id);
+            } else {
+              // New record — insert fresh
+              await supabase.from('auth_records').insert(row);
+            }
+          }
+        }
         inserted += batch.length;
         setProgress(`Uploading... ${inserted}/${allRecords.length}`);
       }
@@ -1488,6 +1527,266 @@ function DeletionQueue({ records, onAction, onClose }) {
   );
 }
 
+
+// ── Patient Document Manager ──────────────────────────────────
+const DOC_TYPES = [
+  'Auth Request + PCP Signature',
+  'Authorization Approval',
+  'Authorization Denial',
+  'Appeal Letter',
+  'Clinical Notes',
+  'Plan of Care',
+  'Referral',
+  'VOB Documentation',
+  'Other',
+];
+
+function PatientDocuments({ record, uploaderName, onClose }) {
+  const [documents, setDocuments]   = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [uploading, setUploading]   = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
+  const [docType, setDocType]       = useState('Auth Request + PCP Signature');
+  const [docNotes, setDocNotes]     = useState('');
+  const [dragOver, setDragOver]     = useState(false);
+  const fileRef                     = useRef();
+
+  const loadDocs = async () => {
+    const { data } = await supabase
+      .from('auth_documents')
+      .select('*')
+      .eq('auth_record_id', record.id)
+      .order('uploaded_at', { ascending: false });
+    setDocuments(data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { loadDocs(); }, [record.id]);
+
+  const uploadFile = async (file) => {
+    if (!file) return;
+    const maxSize = 50 * 1024 * 1024; // 50MB
+    if (file.size > maxSize) {
+      alert('File too large — maximum 50MB');
+      return;
+    }
+
+    setUploading(true);
+    setUploadProgress('Uploading file...');
+
+    try {
+      // Build storage path: patient_name/date/filename
+      const dateStr  = new Date().toISOString().split('T')[0];
+      const safeName = record.patient_name.replace(/[^a-zA-Z0-9]/g, '_');
+      const safeFile = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filePath = `${safeName}/${dateStr}/${Date.now()}_${safeFile}`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('auth-documents')
+        .upload(filePath, file, { cacheControl: '3600', upsert: false });
+
+      if (uploadError) throw new Error(uploadError.message);
+
+      setUploadProgress('Saving record...');
+
+      // Save metadata to auth_documents table
+      const { error: dbError } = await supabase.from('auth_documents').insert({
+        auth_record_id: record.id,
+        patient_name:   record.patient_name,
+        assigned_to:    record.assigned_to,
+        file_name:      file.name,
+        file_path:      filePath,
+        file_size:      file.size,
+        file_type:      file.type,
+        document_type:  docType,
+        notes:          docNotes.trim() || null,
+        uploaded_by:    uploaderName || 'Unknown',
+        uploaded_at:    new Date().toISOString(),
+      });
+
+      if (dbError) throw new Error(dbError.message);
+
+      setDocNotes('');
+      setUploadProgress('');
+      setUploading(false);
+      loadDocs();
+    } catch (e) {
+      setUploadProgress('');
+      setUploading(false);
+      alert('Upload failed: ' + e.message);
+    }
+  };
+
+  const downloadDoc = async (doc) => {
+    const { data, error } = await supabase.storage
+      .from('auth-documents')
+      .createSignedUrl(doc.file_path, 300); // 5-min signed URL
+    if (error) { alert('Could not generate download link'); return; }
+    window.open(data.signedUrl, '_blank');
+  };
+
+  const deleteDoc = async (doc) => {
+    if (!confirm(`Delete "${doc.file_name}"? This cannot be undone.`)) return;
+    await supabase.storage.from('auth-documents').remove([doc.file_path]);
+    await supabase.from('auth_documents').delete().eq('id', doc.id);
+    loadDocs();
+  };
+
+  const fmtSize = (bytes) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024*1024) return `${(bytes/1024).toFixed(1)}KB`;
+    return `${(bytes/(1024*1024)).toFixed(1)}MB`;
+  };
+
+  const fmtDate = (d) => new Date(d).toLocaleDateString('en-US',{
+    month:'short', day:'numeric', year:'numeric',
+    hour:'numeric', minute:'2-digit',
+  });
+
+  const getFileIcon = (type, name) => {
+    const t = (type||'').toLowerCase();
+    const n = (name||'').toLowerCase();
+    if (t.includes('pdf') || n.endsWith('.pdf')) return '📄';
+    if (t.includes('image') || n.match(/\.(jpg|jpeg|png|gif|webp)$/)) return '🖼️';
+    if (n.match(/\.(doc|docx)$/)) return '📝';
+    if (n.match(/\.(xls|xlsx)$/)) return '📊';
+    return '📎';
+  };
+
+  // Group documents by date
+  const grouped = documents.reduce((acc, doc) => {
+    const date = new Date(doc.uploaded_at).toLocaleDateString('en-US',{
+      weekday:'long', month:'long', day:'numeric', year:'numeric'
+    });
+    if (!acc[date]) acc[date] = [];
+    acc[date].push(doc);
+    return acc;
+  }, {});
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div style={{ background:'#fff', borderRadius:20, width:'100%', maxWidth:680, maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'0 24px 64px rgba(0,0,0,0.25)' }}>
+
+        {/* Header */}
+        <div style={{ padding:'22px 28px 18px', borderBottom:'1px solid #E5E7EB', flexShrink:0 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+            <div>
+              <div style={{ fontSize:16, fontWeight:800, color:'#1A1A1A' }}>📁 Patient Documents</div>
+              <div style={{ fontSize:13, color:'#6B7280', marginTop:3 }}>
+                {record.patient_name}
+                <span style={{ marginLeft:8, color:PAYER_COLORS[record.payer]||'#6B7280', fontWeight:600 }}>{record.payer}</span>
+                <span style={{ marginLeft:8, color:'#9CA3AF' }}>· Region {record.region||'—'}</span>
+              </div>
+            </div>
+            <button onClick={onClose} style={{ background:'none', border:'1px solid #E5E7EB', borderRadius:8, color:'#6B7280', padding:'6px 12px', fontSize:12, cursor:'pointer', fontFamily:'inherit', flexShrink:0 }}>✕ Close</button>
+          </div>
+        </div>
+
+        {/* Scrollable body */}
+        <div style={{ flex:1, overflowY:'auto', padding:'20px 28px' }}>
+
+          {/* Upload area */}
+          <div style={{ marginBottom:20 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:'#1A1A1A', marginBottom:12 }}>Upload New Document</div>
+
+            {/* Doc type + notes */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+              <div>
+                <label style={{ display:'block', fontSize:10, fontWeight:700, color:'#6B7280', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Document Type</label>
+                <select value={docType} onChange={e=>setDocType(e.target.value)}
+                  style={{ width:'100%', padding:'8px 10px', border:'1.5px solid #E5E7EB', borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', background:'#fff', color:'#1A1A1A', boxSizing:'border-box' }}>
+                  {DOC_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ display:'block', fontSize:10, fontWeight:700, color:'#6B7280', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Notes (optional)</label>
+                <input value={docNotes} onChange={e=>setDocNotes(e.target.value)} placeholder="e.g. Signed by Dr. Smith 3/26/26"
+                  style={{ width:'100%', padding:'8px 10px', border:'1.5px solid #E5E7EB', borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', color:'#1A1A1A', boxSizing:'border-box' }} />
+              </div>
+            </div>
+
+            {/* Drop zone */}
+            <div
+              onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+              onDragLeave={()=>setDragOver(false)}
+              onDrop={e=>{e.preventDefault();setDragOver(false);uploadFile(e.dataTransfer.files[0]);}}
+              onClick={()=>!uploading&&fileRef.current.click()}
+              style={{ border:`2px dashed ${dragOver?'#D94F2B':'#D1D5DB'}`, borderRadius:12, padding:'28px 20px', textAlign:'center', cursor:uploading?'default':'pointer', background:dragOver?'#FFF5F2':'#FAFAFA', transition:'all 0.15s' }}>
+              <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xlsx,.xls" style={{ display:'none' }}
+                onChange={e=>{uploadFile(e.target.files[0]);e.target.value='';}} />
+              {uploading ? (
+                <>
+                  <div style={{ fontSize:28, marginBottom:8 }}>⏳</div>
+                  <div style={{ fontSize:13, fontWeight:600, color:'#D94F2B' }}>{uploadProgress}</div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize:32, marginBottom:8 }}>📤</div>
+                  <div style={{ fontSize:13, fontWeight:600, color:'#1A1A1A', marginBottom:4 }}>Drop file here or click to browse</div>
+                  <div style={{ fontSize:11, color:'#9CA3AF' }}>PDF, JPG, PNG, Word, Excel · Max 50MB</div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Document list grouped by date */}
+          {loading ? (
+            <div style={{ textAlign:'center', padding:'24px', color:'#9CA3AF' }}>Loading documents...</div>
+          ) : documents.length === 0 ? (
+            <div style={{ textAlign:'center', padding:'32px', color:'#9CA3AF', background:'#F9FAFB', borderRadius:12, border:'1px dashed #E5E7EB' }}>
+              <div style={{ fontSize:28, marginBottom:8 }}>📂</div>
+              <div style={{ fontSize:13, fontWeight:600 }}>No documents uploaded yet</div>
+              <div style={{ fontSize:11, marginTop:4 }}>Upload the first document using the area above</div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontSize:13, fontWeight:700, color:'#1A1A1A', marginBottom:12 }}>
+                Uploaded Documents ({documents.length})
+              </div>
+              {Object.entries(grouped).map(([date, docs]) => (
+                <div key={date} style={{ marginBottom:20 }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8, paddingBottom:6, borderBottom:'1px solid #F3F4F6' }}>
+                    📅 {date}
+                  </div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                    {docs.map(doc => (
+                      <div key={doc.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', background:'#F9FAFB', border:'1px solid #E5E7EB', borderRadius:10 }}>
+                        <div style={{ fontSize:24, flexShrink:0 }}>{getFileIcon(doc.file_type, doc.file_name)}</div>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, fontWeight:600, color:'#1A1A1A', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{doc.file_name}</div>
+                          <div style={{ display:'flex', gap:8, marginTop:3, flexWrap:'wrap', alignItems:'center' }}>
+                            <span style={{ fontSize:10, background:'#EFF6FF', color:'#1D4ED8', border:'1px solid #BFDBFE', borderRadius:10, padding:'1px 7px', fontWeight:700 }}>{doc.document_type}</span>
+                            {doc.file_size&&<span style={{ fontSize:10, color:'#9CA3AF' }}>{fmtSize(doc.file_size)}</span>}
+                            <span style={{ fontSize:10, color:'#9CA3AF' }}>by {doc.uploaded_by}</span>
+                            <span style={{ fontSize:10, color:'#9CA3AF' }}>{new Date(doc.uploaded_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}</span>
+                          </div>
+                          {doc.notes&&<div style={{ fontSize:11, color:'#6B7280', marginTop:4, fontStyle:'italic' }}>{doc.notes}</div>}
+                        </div>
+                        <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+                          <button onClick={()=>downloadDoc(doc)} title="View / Download"
+                            style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:7, color:'#1D4ED8', padding:'6px 12px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
+                            ⬇️ View
+                          </button>
+                          <button onClick={()=>deleteDoc(doc)} title="Delete"
+                            style={{ background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:7, color:'#DC2626', padding:'6px 10px', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>
+                            🗑
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────
 export default function AuthTracker() {
   const { isSuperAdmin, isDirector, isTeamLeader, profile } = useAuth();
@@ -1501,6 +1800,7 @@ export default function AuthTracker() {
   const [editingRecord, setEditingRecord] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
+  const [viewingDocs, setViewingDocs] = useState(null); // record whose docs to show
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteReason, setDeleteReason] = useState('');
   const [deletePending, setDeletePending] = useState([]);
@@ -1750,12 +2050,24 @@ export default function AuthTracker() {
         />
       )}
 
+      {/* Patient Documents Modal */}
+      {viewingDocs && (
+        <PatientDocuments
+          record={viewingDocs}
+          uploaderName={profile?.full_name || profile?.name || 'User'}
+          onClose={()=>setViewingDocs(null)}
+        />
+      )}
+
       {/* Edit Form */}
       {view==='edit' && editingRecord && (
         <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:16, padding:'24px', marginBottom:20, boxShadow:'0 4px 16px rgba(0,0,0,0.08)' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
             <div>
-              <div style={{ fontSize:15, fontWeight:800, color:B.black, marginBottom:2 }}>{editingRecord.id?'Update':'Add'} Auth Record — {editForm.patient_name}</div>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:2 }}>
+            <div style={{ fontSize:15, fontWeight:800, color:B.black }}>{editingRecord.id?'Update':'Add'} Auth Record — {editForm.patient_name}</div>
+            <button onClick={()=>setViewingDocs(editingRecord)} style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:8, color:B.blue, padding:'6px 12px', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>📁 Documents</button>
+          </div>
               <div style={{ fontSize:12, color:B.gray }}>
                 <span style={{ color:PAYER_COLORS[editForm.payer]||B.gray, fontWeight:700 }}>{editForm.payer}</span> · Region {editForm.region}
                 {PAYER_PHONES[editForm.payer]&&<span style={{ marginLeft:12, color:B.lightGray }}>📞 {PAYER_PHONES[editForm.payer]}</span>}
