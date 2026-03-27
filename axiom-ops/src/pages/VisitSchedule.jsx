@@ -1,6 +1,4 @@
 import { useState, useMemo } from 'react';
-import { useOpsData } from '../hooks/useOpsData';
- 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10', orange:'#E8763A',
   black:'#1A1A1A', gray:'#6B7280', lightGray:'#9CA3AF',
@@ -32,78 +30,54 @@ function CompletionBar({ completed, scheduled, height=6 }) {
 }
  
 export default function VisitSchedule() {
-  const { visitSchedule, hasVisits, loading } = useOpsData();
+  // Read full weekly Pariox data from localStorage
+  const csvData = useMemo(() => {
+    try { const s=localStorage.getItem('axiom_pariox_data'); return s?JSON.parse(s):null; } catch { return null; }
+  }, []);
  
-  const [expandedRegion, setExpandedRegion]     = useState(null);
+  const hasVisits = !!(csvData?.regionData && Object.keys(csvData.regionData).length > 0);
+  const loading   = false;
+ 
+  const [expandedRegion, setExpandedRegion]       = useState(null);
   const [expandedClinician, setExpandedClinician] = useState(null);
-  const [filterStatus, setFilterStatus]         = useState('all');
-  const [search, setSearch]                     = useState('');
  
-  // Build region → clinician → patient structure
+  // Build region data from Pariox regionData + staffStats
   const regionData = useMemo(() => {
-    const map = {};
-    visitSchedule.forEach(v => {
-      const region = (v.region || 'Unknown').trim();
-      const clinician = (v.coordinator || v.staff || 'Unknown Clinician').trim();
-      const patient = (v.patient_name || '').trim();
-      const status = (v.status || '').toLowerCase();
-      const isCompleted = status.startsWith('completed');
-      const isMissed    = status.includes('missed') || status.includes('no show') || status.includes('cancel');
+    if (!csvData?.regionData) return [];
+    const staffStats = csvData.staffStats || {};
  
-      if (!map[region]) map[region] = { scheduled:0, completed:0, missed:0, clinicians:{} };
-      map[region].scheduled++;
-      if (isCompleted) map[region].completed++;
-      if (isMissed)    map[region].missed++;
+    return Object.entries(csvData.regionData)
+      .map(([region, rd], i) => {
+        const clinicians = (rd.clinicianList || []).map(c => {
+          const missed    = Math.max(0, c.scheduled - c.completed);
+          // Get patient list from staffStats if available
+          const staffStat = staffStats[c.name];
+          const patients  = staffStat ? [] : []; // staffStats has counts not names
+          return {
+            name:      c.name,
+            scheduled: c.scheduled,
+            completed: c.completed,
+            missed,
+            patients,
+            patientCount: c.patients || staffStat?.uniquePatients || 0,
+          };
+        }).sort((a,b) => b.missed - a.missed || b.scheduled - a.scheduled);
  
-      if (!map[region].clinicians[clinician]) {
-        map[region].clinicians[clinician] = { scheduled:0, completed:0, missed:0, patients:{} };
-      }
-      map[region].clinicians[clinician].scheduled++;
-      if (isCompleted) map[region].clinicians[clinician].completed++;
-      if (isMissed)    map[region].clinicians[clinician].missed++;
+        const scheduled = rd.scheduled || 0;
+        const completed = rd.completed || 0;
+        const missed    = clinicians.reduce((s,c) => s + c.missed, 0);
  
-      if (patient) {
-        if (!map[region].clinicians[clinician].patients[patient]) {
-          map[region].clinicians[clinician].patients[patient] = { visits:[], status:'scheduled' };
-        }
-        map[region].clinicians[clinician].patients[patient].visits.push({
-          date: v.visit_date, status: v.status, disc: v.disc,
-        });
-        if (isCompleted) map[region].clinicians[clinician].patients[patient].status = 'completed';
-        if (isMissed)    map[region].clinicians[clinician].patients[patient].status = 'missed';
-      }
-    });
- 
-    // Convert to sorted arrays
-    return Object.entries(map)
-      .map(([region, data], i) => ({
-        region,
-        scheduled:  data.scheduled,
-        completed:  data.completed,
-        missed:     data.missed,
-        color:      REGION_COLORS[i % REGION_COLORS.length],
-        clinicians: Object.entries(data.clinicians)
-          .map(([name, cd]) => ({
-            name,
-            scheduled:  cd.scheduled,
-            completed:  cd.completed,
-            missed:     cd.missed,
-            patients:   Object.entries(cd.patients).map(([pname, pd]) => ({
-              name:    pname,
-              visits:  pd.visits,
-              status:  pd.status,
-              visitCount: pd.visits.length,
-            })).sort((a,b) => {
-              // Missed first
-              if (a.status==='missed' && b.status!=='missed') return -1;
-              if (a.status!=='missed' && b.status==='missed') return 1;
-              return a.name.localeCompare(b.name);
-            }),
-          }))
-          .sort((a,b) => b.missed - a.missed || b.scheduled - a.scheduled),
-      }))
+        return {
+          region,
+          scheduled,
+          completed,
+          missed,
+          color:      REGION_COLORS[i % REGION_COLORS.length],
+          clinicians,
+        };
+      })
       .sort((a,b) => a.region.localeCompare(b.region));
-  }, [visitSchedule]);
+  }, [csvData]);
  
   // Totals
   const totals = useMemo(() => regionData.reduce(
@@ -120,12 +94,6 @@ export default function VisitSchedule() {
     e.stopPropagation();
     setExpandedClinician(p => p===key ? null : key);
   };
- 
-  if (loading) return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:60, color:B.lightGray, fontFamily:"'DM Sans',sans-serif" }}>
-      Loading visit schedule...
-    </div>
-  );
  
   if (!hasVisits) return (
     <div style={{ fontFamily:"'DM Sans',sans-serif", padding:'0 0 24px' }}>
@@ -148,6 +116,7 @@ export default function VisitSchedule() {
         <div style={{ fontSize:22, fontWeight:800, color:B.black, marginBottom:4 }}>📅 Visit Schedule</div>
         <div style={{ fontSize:13, color:B.gray }}>
           {regionData.length} regions · {totals.scheduled} visits scheduled · {totals.completed} completed · {totals.missed} missed
+          {csvData?.rowCount ? ` · ${csvData.rowCount} Pariox records` : ''}
         </div>
       </div>
  
@@ -239,7 +208,7 @@ export default function VisitSchedule() {
                           </div>
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ fontSize:13, fontWeight:600, color:B.black, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.name}</div>
-                            <div style={{ fontSize:10, color:B.gray, marginTop:1 }}>{c.patients.length} patient{c.patients.length!==1?'s':''} · {c.scheduled} visits</div>
+                            <div style={{ fontSize:10, color:B.gray, marginTop:1 }}>{c.patientCount} patient{c.patientCount!==1?'s':''} · {c.scheduled} visits</div>
                           </div>
                           <div style={{ display:'flex', gap:10, alignItems:'center', flexShrink:0 }}>
                             <div style={{ textAlign:'center' }}>
@@ -259,33 +228,29 @@ export default function VisitSchedule() {
                           </div>
                         </div>
  
-                        {/* Patient list */}
+                        {/* Visit summary when expanded */}
                         {isClinicianOpen && (
-                          <div style={{ borderTop:`1px solid ${B.border}`, background:'#FDFAF9' }}>
-                            <div style={{ display:'grid', gridTemplateColumns:'1fr 60px 80px 70px', padding:'6px 14px', background:'#F5F0EE', borderBottom:`1px solid ${B.border}` }}>
-                              {['Patient','Visits','Status','Disc'].map(h=>(
-                                <div key={h} style={{ fontSize:9, fontWeight:700, color:B.lightGray, textTransform:'uppercase', letterSpacing:'0.07em' }}>{h}</div>
+                          <div style={{ borderTop:`1px solid ${B.border}`, background:'#FDFAF9', padding:'12px 14px' }}>
+                            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
+                              {[
+                                { label:'Scheduled',  value:c.scheduled, color:B.black  },
+                                { label:'Completed',  value:c.completed, color:B.green  },
+                                { label:'Missed',     value:c.missed,    color:c.missed>0?B.danger:B.lightGray },
+                              ].map(s=>(
+                                <div key={s.label} style={{ background:B.bg, border:`1px solid ${B.border}`, borderRadius:8, padding:'8px 12px', textAlign:'center' }}>
+                                  <div style={{ fontSize:18, fontWeight:800, color:s.color, fontFamily:"'DM Mono',monospace" }}>{s.value}</div>
+                                  <div style={{ fontSize:10, color:B.lightGray, textTransform:'uppercase', marginTop:2 }}>{s.label}</div>
+                                </div>
                               ))}
                             </div>
-                            {c.patients.map(p => {
-                              const sm = statusMeta(p.status === 'completed' ? 'completed' : p.status === 'missed' ? 'missed' : 'scheduled');
-                              const disc = [...new Set(p.visits.map(v=>v.disc).filter(Boolean))].join(', ');
-                              return (
-                                <div key={p.name} style={{ display:'grid', gridTemplateColumns:'1fr 60px 80px 70px', padding:'7px 14px', borderBottom:'1px solid #F0EDE9', alignItems:'center' }}>
-                                  <div style={{ fontSize:12, fontWeight:500, color:B.black, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.name}</div>
-                                  <div style={{ fontSize:12, fontWeight:700, color:B.black, fontFamily:'monospace', textAlign:'center' }}>{p.visitCount}</div>
-                                  <div>
-                                    <span style={{ fontSize:9, fontWeight:700, color:sm.color, background:sm.bg, border:`1px solid ${sm.border}`, borderRadius:10, padding:'2px 6px', whiteSpace:'nowrap' }}>
-                                      {sm.label}
-                                    </span>
-                                  </div>
-                                  <div style={{ fontSize:10, color:B.gray }}>{disc||'—'}</div>
-                                </div>
-                              );
-                            })}
-                            {c.patients.length === 0 && (
-                              <div style={{ padding:'12px 14px', fontSize:12, color:B.lightGray }}>No patient data available</div>
+                            {c.missed > 0 && (
+                              <div style={{ marginTop:10, background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:8, padding:'8px 12px', fontSize:12, color:B.danger, fontWeight:600 }}>
+                                ⚠️ {c.missed} missed visit{c.missed!==1?'s':''} — follow up with clinician to reschedule
+                              </div>
                             )}
+                            <div style={{ marginTop:8, fontSize:11, color:B.lightGray }}>
+                              Patient-level detail available in Patient Census
+                            </div>
                           </div>
                         )}
                       </div>
