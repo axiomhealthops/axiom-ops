@@ -13,6 +13,7 @@ import AuthTracker from './AuthTracker';
 import SuperAdminPanel from './SuperAdminPanel';
 import GlobalSearch from './GlobalSearch';
 import CareCoordApp from './CareCoordApp';
+import CareCoordDashboard from './CareCoordDashboard';
 import AuthTimeline from './AuthTimeline';
 import OnHoldRecovery from './OnHoldRecovery';
 import DailyReports from './DailyReports';
@@ -76,7 +77,7 @@ function AuthTeamPreview() {
 }
  
 function CareCoordPreview() {
-  return <CareCoordApp />;
+  return <CareCoordDashboard />;
 }
  
 export default function Dashboard() {
