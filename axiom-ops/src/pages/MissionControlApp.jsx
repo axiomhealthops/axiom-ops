@@ -1,8 +1,13 @@
+
+Copy
+
 import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { AuthDashboard } from './TeamDashboard';
 import CareCoordApp from './CareCoordApp';
 import CareCoordDashboard from './CareCoordDashboard';
+import CareCoordPatientQueue from './CareCoordPatientQueue';
+import CareCoordVisitSchedule from './CareCoordVisitSchedule';
 import AuthTracker from './AuthTracker';
 import PatientCensus from './PatientCensus';
 import VisitSchedule from './VisitSchedule';
@@ -29,7 +34,7 @@ function getAllowedPages(role, team) {
   if (role === 'team_member') {
     const base = ['home', 'census', 'visits'];
     if (team === 'auth')       return [...base, 'authtrack', 'authtimeline', 'submit'];
-    if (team === 'care_coord') return [...base, 'reports', 'actions', 'recovery'];
+    if (team === 'care_coord') return ['home', 'patients', 'myvisits', 'recovery', 'reports', 'actions'];
     if (team === 'intake')     return [...base, 'submit'];
     return base;
   }
@@ -48,6 +53,8 @@ const ALL_PAGES = [
   { id:'reports',    label:'Daily Reports',         icon:'📝', section:'Reports'    },
   { id:'authtimeline',label:'Auth Timeline',           icon:'⏱️', section:'Reports'    },
   { id:'recovery',    label:'On-Hold Recovery',       icon:'⏸️', section:'Operations' },
+  { id:'patients',    label:'Patient Queue',           icon:'👥', section:'Operations' },
+  { id:'myvisits',    label:'Visit Schedule',          icon:'📅', section:'Operations' },
   { id:'submit',   label:'Submit Report',    icon:'✏️', section:'Reports'    },
 ];
  
@@ -220,7 +227,7 @@ export default function MissionControlApp() {
     switch (currentPage) {
       case 'home':
         if (team === 'auth')       return <AuthDashboard />;
-        if (team === 'care_coord') return <CareCoordDashboard />;
+        if (team === 'care_coord') return <CareCoordDashboard onNavigate={setCurrentPage} />;
         return <AuthDashboard />;
       case 'census':    return <PatientCensus />;
       case 'visits':    return <VisitSchedule />;
@@ -228,7 +235,9 @@ export default function MissionControlApp() {
       case 'submit':    return <CoordinatorApp previewMode={false} />;
       case 'reports':   return <DailyReports />;
       case 'authtimeline': return <AuthTimeline />;
-      case 'recovery': return <OnHoldRecovery />;
+      case 'recovery':  return <OnHoldRecovery />;
+      case 'patients':  return <CareCoordPatientQueue />;
+      case 'myvisits':  return <CareCoordVisitSchedule />;
       case 'actions':  return <ActionList />;
       default:
         return null;
@@ -255,4 +264,4 @@ export default function MissionControlApp() {
     </div>
   );
 }
-
+ 
