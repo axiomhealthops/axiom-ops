@@ -1,208 +1,568 @@
-import { useState, useMemo } from 'react';
-import { useOpsData } from '../hooks/useOpsData';
-
+import { useState, useEffect, useMemo } from 'react';
+import { useAuth } from '../hooks/useAuth';
+import { supabase } from '../lib/supabase';
+ 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10', orange:'#E8763A',
   black:'#1A1A1A', gray:'#6B7280', lightGray:'#9CA3AF',
   border:'#E5E7EB', bg:'#F9FAFB', card:'#fff',
-  green:'#16A34A', yellow:'#D97706', danger:'#DC2626', blue:'#1D4ED8',
+  green:'#16A34A', yellow:'#D97706', danger:'#DC2626',
+  blue:'#1D4ED8', purple:'#7C3AED',
 };
-
-const DEFAULT_RULES = [
-  {id:'soc_48',  enabled:true, label:'SOC Pending > 48 hours',       threshold:2,  status:'soc_pending',        priority:'critical', action:'Confirm evaluation is scheduled. Contact coordinator to move forward.'},
-  {id:'auth_7',  enabled:true, label:'Auth Pending > 7 days',         threshold:7,  status:'auth_pending',        priority:'critical', action:'Follow up with insurance. Check if additional clinical info was requested.'},
-  {id:'active_auth_5',enabled:true,label:'Active-Auth Pending > 5 days',threshold:5,status:'active_auth_pending',priority:'critical', action:'Patient is treating without confirmed auth. Escalate immediately.'},
-  {id:'eval_72', enabled:true, label:'Eval Pending > 72 hours',       threshold:3,  status:'eval_pending',        priority:'high',     action:'Confirm eval date is booked. Coordinator must schedule within 72hrs of referral.'},
-  {id:'onhold_30',enabled:true,label:'On Hold > 30 days',             threshold:30, status:'on_hold',             priority:'high',     action:'Review hold reason. Contact patient to assess if ready to return to treatment.'},
-  {id:'onhold_fac_14',enabled:true,label:'On Hold - Facility > 14 days',threshold:14,status:'on_hold_facility',  priority:'high',     action:'Check discharge status. Patient may be ready to return to home care.'},
-  {id:'waitlist_5',enabled:true,label:'Waitlist > 5 days',            threshold:5,  status:'waitlist',            priority:'medium',   action:'Contact patient to confirm interest and schedule evaluation.'},
-  {id:'hosp_7',  enabled:true, label:'Hospitalized > 7 days',         threshold:7,  status:'hospitalized',        priority:'medium',   action:'Verify readmission risk. Ensure hold documentation is complete.'},
-  {id:'soc_7',   enabled:true, label:'SOC Pending > 7 days (escalate)',threshold:7, status:'soc_pending',         priority:'critical', action:'ESCALATE — SOC pending over 7 days. Director review required.'},
-];
-
+ 
 const PRIORITY_META = {
-  critical:{color:B.danger, bg:'#FEF2F2',border:'#FECACA',icon:'🔴',label:'Critical'},
-  high:    {color:B.orange, bg:'#FFF7ED',border:'#FED7AA',icon:'🟠',label:'High'},
-  medium:  {color:B.yellow, bg:'#FFFBEB',border:'#FDE68A',icon:'🟡',label:'Medium'},
-  low:     {color:B.blue,   bg:'#EFF6FF',border:'#BFDBFE',icon:'🔵',label:'Low'},
+  critical: { label:'Critical', color:B.danger,  bg:'#FEF2F2', border:'#FECACA', icon:'🚨', order:0 },
+  high:     { label:'High',     color:B.orange,  bg:'#FFF7ED', border:'#FED7AA', icon:'⚠️',  order:1 },
+  medium:   { label:'Medium',   color:B.yellow,  bg:'#FFFBEB', border:'#FDE68A', icon:'📋', order:2 },
+  low:      { label:'Low',      color:B.blue,    bg:'#EFF6FF', border:'#BFDBFE', icon:'💬', order:3 },
 };
-
-export default function ActionList() {
-  const { censusData, hasCensus, loading } = useOpsData();
-  const today = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-
-  const [rules, setRules]         = useState(() => { try { return JSON.parse(localStorage.getItem('axiom_action_rules')||'null')||DEFAULT_RULES; } catch { return DEFAULT_RULES; } });
-  const [notes, setNotes]         = useState(() => { try { return JSON.parse(localStorage.getItem('axiom_action_notes')||'{}'); } catch { return {}; } });
-  const [completed, setCompleted] = useState(() => { try { return JSON.parse(localStorage.getItem(`axiom_actions_done_${new Date().toDateString()}`)||'{}'); } catch { return {}; } });
-  const [filterPriority, setFilterPriority] = useState('all');
-  const [showRules, setShowRules] = useState(false);
-
-  const saveRules = r => { setRules(r); try { localStorage.setItem('axiom_action_rules',JSON.stringify(r)); } catch{} };
-  const saveNote  = (id,text) => { const n={...notes,[id]:text}; setNotes(n); try { localStorage.setItem('axiom_action_notes',JSON.stringify(n)); } catch{} };
-  const toggleDone = id => { const c={...completed,[id]:!completed[id]}; setCompleted(c); try { localStorage.setItem(`axiom_actions_done_${new Date().toDateString()}`,JSON.stringify(c)); } catch{} };
-
-  // Generate action items from live census data
-  const actionItems = useMemo(() => {
-    if (!hasCensus || !censusData?.patients) return [];
-    const items = [];
-    censusData.patients.forEach(patient => {
-      if (!patient.daysInStatus && patient.daysInStatus !== 0) return;
-      const days = patient.daysInStatus;
-      rules.filter(r => r.enabled && r.status === patient.status && days >= r.threshold).forEach(rule => {
-        items.push({
-          id: `${rule.id}_${patient.name}`,
-          patient: patient.name,
-          region: patient.region,
-          status: patient.status,
-          payer: patient.payer || patient.ref,
-          days,
-          priority: rule.priority,
-          ruleLabel: rule.label,
-          action: rule.action,
-        });
+ 
+const STATUS_META = {
+  open:        { label:'Open',        color:B.danger, bg:'#FEF2F2' },
+  in_progress: { label:'In Progress', color:B.yellow, bg:'#FFFBEB' },
+  pending:     { label:'Pending',     color:B.blue,   bg:'#EFF6FF' },
+  completed:   { label:'Completed',   color:B.green,  bg:'#F0FDF4' },
+  escalated:   { label:'Escalated',   color:B.purple, bg:'#F5F3FF' },
+};
+ 
+const ACTION_TYPES = [
+  'Authorization Follow-Up',
+  'Patient Outreach',
+  'Care Coordination',
+  'On-Hold Recovery',
+  'SOC Scheduling',
+  'Eval Scheduling',
+  'Insurance Call',
+  'Documentation Required',
+  'Director Review',
+  'Referral Follow-Up',
+  'Other',
+];
+ 
+const ALL_STAFF = [
+  'Carla Smith','Ethel Camposano','Gerilyn Bayson','Uriel Sarabosing',
+  'Gypsy Renos','Mary Imperio','Audrey Sarmiento','April Manalo',
+  'Hervylie Senica','Kiarra Arabejo',
+];
+ 
+function fmtDate(d) {
+  if (!d) return '—';
+  const date = new Date(d);
+  const now = new Date();
+  const diff = Math.floor((now - date) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  if (diff < 7) return `${diff}d ago`;
+  return date.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+}
+ 
+function fmtDue(d) {
+  if (!d) return null;
+  const date = new Date(d+'T12:00:00');
+  const now = new Date();
+  const diff = Math.floor((date - now) / 86400000);
+  if (diff < 0) return { label:`${Math.abs(diff)}d overdue`, color:B.danger, urgent:true };
+  if (diff === 0) return { label:'Due today', color:B.orange, urgent:true };
+  if (diff === 1) return { label:'Due tomorrow', color:B.yellow, urgent:false };
+  return { label:`Due ${date.toLocaleDateString('en-US',{month:'short',day:'numeric'})}`, color:B.lightGray, urgent:false };
+}
+ 
+// ── New/Edit Action Modal ──────────────────────────────────────
+function ActionModal({ action, currentUser, onSave, onClose }) {
+  const isEdit = !!action?.id;
+  const [form, setForm] = useState({
+    title: action?.title || '',
+    action_type: action?.action_type || 'Authorization Follow-Up',
+    priority: action?.priority || 'medium',
+    patient_name: action?.patient_name || '',
+    assigned_to: action?.assigned_to || currentUser || '',
+    due_date: action?.due_date || '',
+    notes: action?.notes || '',
+    status: action?.status || 'open',
+  });
+  const [saving, setSaving] = useState(false);
+  const setF = (k,v) => setForm(p=>({...p,[k]:v}));
+ 
+  const save = async () => {
+    if (!form.title.trim()) return;
+    setSaving(true);
+    const payload = {
+      ...form,
+      title: form.title.trim(),
+      patient_name: form.patient_name.trim() || null,
+      due_date: form.due_date || null,
+      notes: form.notes.trim() || null,
+      updated_at: new Date().toISOString(),
+    };
+    if (isEdit) {
+      await supabase.from('action_items').update(payload).eq('id', action.id);
+    } else {
+      await supabase.from('action_items').insert({
+        ...payload,
+        created_by: currentUser || 'Unknown',
+        created_at: new Date().toISOString(),
+        status: 'open',
       });
-    });
-    const order = {critical:0,high:1,medium:2,low:3};
-    return items.sort((a,b)=>order[a.priority]-order[b.priority]||b.days-a.days);
-  }, [censusData, rules, hasCensus]);
-
-  const filtered   = actionItems.filter(i=>filterPriority==='all'||i.priority===filterPriority).filter(i=>!completed[i.id]);
-  const doneItems  = actionItems.filter(i=>completed[i.id]);
-  const critCount  = actionItems.filter(i=>i.priority==='critical'&&!completed[i.id]).length;
-  const highCount  = actionItems.filter(i=>i.priority==='high'&&!completed[i.id]).length;
-  const medCount   = actionItems.filter(i=>i.priority==='medium'&&!completed[i.id]).length;
-
-  if (loading) return <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:60, color:B.lightGray, fontFamily:"'DM Sans',sans-serif" }}>Loading action list...</div>;
-
+    }
+    setSaving(false);
+    onSave();
+  };
+ 
   return (
-    <div style={{ fontFamily:"'DM Sans',sans-serif", maxWidth:900 }}>
-      {/* Header */}
-      <div style={{ marginBottom:24 }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20, fontFamily:"'DM Sans',sans-serif" }}>
+      <div style={{ background:B.card, borderRadius:20, padding:28, width:'100%', maxWidth:560, maxHeight:'90vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+        <div style={{ fontSize:16, fontWeight:800, color:B.black, marginBottom:20 }}>
+          {isEdit ? '✏️ Edit Action' : '➕ New Action Item'}
+        </div>
+ 
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
           <div>
-            <h1 style={{ fontSize:22, fontWeight:800, color:B.black, margin:0, marginBottom:4 }}>📋 Action List</h1>
-            <p style={{ fontSize:13, color:B.gray, margin:0 }}>{today} · Generated from live census · updates automatically</p>
+            <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Title *</label>
+            <input value={form.title} onChange={e=>setF('title',e.target.value)} placeholder="What needs to be done?"
+              style={{ width:'100%', padding:'9px 12px', border:`1.5px solid ${form.title?B.red:B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', color:B.black, boxSizing:'border-box' }} />
           </div>
-          <button onClick={()=>setShowRules(p=>!p)} style={{ background:'none', border:`1px solid ${B.border}`, borderRadius:8, color:B.gray, padding:'7px 14px', fontSize:12, cursor:'pointer', fontFamily:'inherit' }}>⚙️ Configure Rules</button>
+ 
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <div>
+              <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Type</label>
+              <select value={form.action_type} onChange={e=>setF('action_type',e.target.value)}
+                style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}>
+                {ACTION_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Priority</label>
+              <select value={form.priority} onChange={e=>setF('priority',e.target.value)}
+                style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${PRIORITY_META[form.priority]?.color||B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', background:PRIORITY_META[form.priority]?.bg||'#fff', color:PRIORITY_META[form.priority]?.color||B.black, boxSizing:'border-box', fontWeight:700 }}>
+                {Object.entries(PRIORITY_META).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label}</option>)}
+              </select>
+            </div>
+          </div>
+ 
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <div>
+              <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Patient (optional)</label>
+              <input value={form.patient_name} onChange={e=>setF('patient_name',e.target.value)} placeholder="Patient name..."
+                style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', color:B.black, boxSizing:'border-box' }} />
+            </div>
+            <div>
+              <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Due Date</label>
+              <input type="date" value={form.due_date} onChange={e=>setF('due_date',e.target.value)}
+                style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', color:B.black, boxSizing:'border-box' }} />
+            </div>
+          </div>
+ 
+          <div>
+            <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Assign To</label>
+            <select value={form.assigned_to} onChange={e=>setF('assigned_to',e.target.value)}
+              style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}>
+              <option value="">Unassigned</option>
+              {ALL_STAFF.map(n=><option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+ 
+          {isEdit && (
+            <div>
+              <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Status</label>
+              <select value={form.status} onChange={e=>setF('status',e.target.value)}
+                style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${STATUS_META[form.status]?.color||B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', background:STATUS_META[form.status]?.bg||'#fff', color:STATUS_META[form.status]?.color||B.black, boxSizing:'border-box', fontWeight:700 }}>
+                {Object.entries(STATUS_META).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+              </select>
+            </div>
+          )}
+ 
+          <div>
+            <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Notes</label>
+            <textarea value={form.notes} onChange={e=>setF('notes',e.target.value)} rows={3}
+              placeholder="Additional context, steps taken, next actions..."
+              style={{ width:'100%', padding:'9px 12px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', resize:'vertical', color:B.black, boxSizing:'border-box' }} />
+          </div>
+        </div>
+ 
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
+          <button onClick={onClose} style={{ background:'none', border:`1px solid ${B.border}`, borderRadius:8, color:B.gray, padding:'9px 18px', fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>Cancel</button>
+          <button onClick={save} disabled={!form.title.trim()||saving}
+            style={{ background:`linear-gradient(135deg,${B.red},${B.darkRed})`, border:'none', borderRadius:8, color:'#fff', padding:'9px 22px', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', opacity:!form.title.trim()||saving?0.5:1 }}>
+            {saving?'Saving...':(isEdit?'Save Changes':'Create Action')}
+          </button>
         </div>
       </div>
-
-      {/* Summary */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:20 }}>
+    </div>
+  );
+}
+ 
+// ── Action Card ────────────────────────────────────────────────
+function ActionCard({ item, currentUser, isLeader, onUpdate, onEdit }) {
+  const [updating, setUpdating] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+  const [noteText, setNoteText] = useState('');
+  const [addingNote, setAddingNote] = useState(false);
+ 
+  const pMeta = PRIORITY_META[item.priority] || PRIORITY_META.medium;
+  const sMeta = STATUS_META[item.status] || STATUS_META.open;
+  const due   = fmtDue(item.due_date);
+  const isOwn = item.assigned_to === currentUser || item.created_by === currentUser;
+ 
+  const updateStatus = async (status) => {
+    setUpdating(true);
+    await supabase.from('action_items').update({
+      status,
+      completed_at: status==='completed' ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', item.id);
+    setUpdating(false);
+    onUpdate();
+  };
+ 
+  const escalate = async () => {
+    setUpdating(true);
+    await supabase.from('action_items').update({
+      status: 'escalated',
+      priority: 'critical',
+      escalated_by: currentUser,
+      escalated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq('id', item.id);
+    setUpdating(false);
+    onUpdate();
+  };
+ 
+  const addNote = async () => {
+    if (!noteText.trim()) return;
+    setAddingNote(true);
+    const prev = item.notes ? item.notes + '\n\n' : '';
+    const timestamp = new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+    const newNote = `${prev}[${timestamp} - ${currentUser}] ${noteText.trim()}`;
+    await supabase.from('action_items').update({
+      notes: newNote,
+      updated_at: new Date().toISOString(),
+    }).eq('id', item.id);
+    setNoteText('');
+    setAddingNote(false);
+    onUpdate();
+  };
+ 
+  return (
+    <div style={{
+      background: item.status==='completed' ? '#FAFAFA' : B.card,
+      border: `1.5px solid ${due?.urgent&&item.status!=='completed' ? pMeta.color : item.status==='completed' ? '#E5E7EB' : pMeta.border}`,
+      borderRadius:12, padding:'14px 16px', marginBottom:8,
+      opacity: item.status==='completed' ? 0.7 : 1,
+      boxShadow: due?.urgent&&item.status!=='completed' ? `0 2px 8px ${pMeta.color}20` : '0 1px 3px rgba(0,0,0,0.04)',
+      fontFamily:"'DM Sans',sans-serif",
+    }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12 }}>
+        <div style={{ flex:1, minWidth:0 }}>
+          {/* Top row */}
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:5, flexWrap:'wrap' }}>
+            <span style={{ fontSize:10, fontWeight:700, color:pMeta.color, background:pMeta.bg, border:`1px solid ${pMeta.border}`, borderRadius:10, padding:'2px 8px' }}>
+              {pMeta.icon} {pMeta.label}
+            </span>
+            <span style={{ fontSize:10, fontWeight:700, color:sMeta.color, background:sMeta.bg, borderRadius:10, padding:'2px 8px' }}>
+              {sMeta.label}
+            </span>
+            <span style={{ fontSize:10, color:B.lightGray, background:B.bg, borderRadius:10, padding:'2px 8px' }}>
+              {item.action_type}
+            </span>
+            {due && item.status !== 'completed' && (
+              <span style={{ fontSize:10, fontWeight:due.urgent?700:400, color:due.color }}>
+                {due.urgent?'⏰ ':''}{due.label}
+              </span>
+            )}
+          </div>
+ 
+          {/* Title */}
+          <div style={{ fontSize:14, fontWeight:700, color:item.status==='completed'?B.lightGray:B.black, marginBottom:4, textDecoration:item.status==='completed'?'line-through':'none' }}>
+            {item.title}
+          </div>
+ 
+          {/* Meta */}
+          <div style={{ display:'flex', gap:12, fontSize:11, color:B.lightGray, flexWrap:'wrap' }}>
+            {item.patient_name && <span>👤 {item.patient_name}</span>}
+            {item.assigned_to && <span>→ {item.assigned_to.split(' ')[0]}</span>}
+            <span>by {item.created_by?.split(' ')[0]||'?'} · {fmtDate(item.created_at)}</span>
+            {item.escalated_by && <span style={{ color:B.purple, fontWeight:700 }}>⚡ Escalated by {item.escalated_by.split(' ')[0]}</span>}
+          </div>
+ 
+          {/* Notes preview */}
+          {item.notes && (
+            <div style={{ marginTop:8 }}>
+              <button onClick={()=>setShowNotes(p=>!p)} style={{ background:'none', border:'none', color:B.blue, fontSize:11, cursor:'pointer', fontFamily:'inherit', padding:0 }}>
+                {showNotes?'▲ Hide':'▼ Show'} notes
+              </button>
+              {showNotes && (
+                <div style={{ marginTop:6, background:B.bg, border:`1px solid ${B.border}`, borderRadius:8, padding:'8px 12px', fontSize:12, color:B.black, whiteSpace:'pre-wrap', maxHeight:150, overflowY:'auto' }}>
+                  {item.notes}
+                </div>
+              )}
+            </div>
+          )}
+ 
+          {/* Add note */}
+          {item.status !== 'completed' && (
+            <div style={{ marginTop:8, display:'flex', gap:6 }}>
+              <input value={noteText} onChange={e=>setNoteText(e.target.value)}
+                onKeyDown={e=>e.key==='Enter'&&addNote()}
+                placeholder="Add update note..."
+                style={{ flex:1, padding:'5px 10px', border:`1px solid ${B.border}`, borderRadius:7, fontSize:11, fontFamily:'inherit', outline:'none', color:B.black }} />
+              <button onClick={addNote} disabled={!noteText.trim()||addingNote}
+                style={{ background:B.blue, border:'none', borderRadius:7, color:'#fff', padding:'5px 10px', fontSize:11, cursor:'pointer', fontFamily:'inherit', opacity:!noteText.trim()||addingNote?0.5:1 }}>
+                {addingNote?'...':'Add'}
+              </button>
+            </div>
+          )}
+        </div>
+ 
+        {/* Actions */}
+        <div style={{ display:'flex', flexDirection:'column', gap:5, flexShrink:0 }}>
+          {item.status === 'open' && (
+            <button onClick={()=>updateStatus('in_progress')} disabled={updating}
+              style={{ background:B.yellow+'20', border:`1px solid ${B.yellow}`, borderRadius:7, color:B.yellow, padding:'5px 10px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' }}>
+              Start
+            </button>
+          )}
+          {(item.status === 'in_progress' || item.status === 'open') && (
+            <button onClick={()=>updateStatus('completed')} disabled={updating}
+              style={{ background:'#F0FDF4', border:'1px solid #BBF7D0', borderRadius:7, color:B.green, padding:'5px 10px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+              ✓ Done
+            </button>
+          )}
+          {item.status !== 'escalated' && item.status !== 'completed' && isLeader && (
+            <button onClick={escalate} disabled={updating}
+              style={{ background:'#F5F3FF', border:`1px solid #DDD6FE`, borderRadius:7, color:B.purple, padding:'5px 10px', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+              ⚡ Escalate
+            </button>
+          )}
+          {item.status === 'completed' && (
+            <button onClick={()=>updateStatus('open')} disabled={updating}
+              style={{ background:'none', border:`1px solid ${B.border}`, borderRadius:7, color:B.lightGray, padding:'5px 10px', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>
+              Reopen
+            </button>
+          )}
+          {(isLeader || isOwn) && (
+            <button onClick={()=>onEdit(item)}
+              style={{ background:'none', border:`1px solid ${B.border}`, borderRadius:7, color:B.gray, padding:'5px 10px', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>
+              ✏️
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+ 
+// ── Main ActionList ────────────────────────────────────────────
+export default function ActionList() {
+  const { profile, isSuperAdmin, isDirector, isTeamLeader } = useAuth();
+  const isLeader = isSuperAdmin || isDirector || isTeamLeader;
+  const currentUser = profile?.full_name || profile?.name || '';
+ 
+  const [items, setItems]           = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [showModal, setShowModal]   = useState(false);
+  const [editItem, setEditItem]     = useState(null);
+  const [filterStatus, setFilterStatus] = useState('active');
+  const [filterPriority, setFilterPriority] = useState('all');
+  const [filterAssignee, setFilterAssignee] = useState('mine');
+  const [search, setSearch]         = useState('');
+  const [activeTab, setActiveTab]   = useState('list');
+ 
+  const loadItems = async () => {
+    const { data } = await supabase
+      .from('action_items')
+      .select('*')
+      .order('created_at', { ascending: false });
+    setItems(data || []);
+    setLoading(false);
+  };
+ 
+  useEffect(() => {
+    loadItems();
+    const sub = supabase.channel('action-items-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'action_items'}, loadItems)
+      .subscribe();
+    return () => sub.unsubscribe();
+  }, []);
+ 
+  const visible = useMemo(() => {
+    let list = items;
+    if (filterStatus === 'active') list = list.filter(i => i.status !== 'completed');
+    else if (filterStatus === 'completed') list = list.filter(i => i.status === 'completed');
+    if (filterPriority !== 'all') list = list.filter(i => i.priority === filterPriority);
+    if (filterAssignee === 'mine') list = list.filter(i => i.assigned_to === currentUser || i.created_by === currentUser);
+    else if (filterAssignee !== 'all') list = list.filter(i => i.assigned_to === filterAssignee);
+    if (search) list = list.filter(i =>
+      (i.title||'').toLowerCase().includes(search.toLowerCase()) ||
+      (i.patient_name||'').toLowerCase().includes(search.toLowerCase())
+    );
+    return list.sort((a,b) => {
+      const po = (PRIORITY_META[a.priority]?.order||9) - (PRIORITY_META[b.priority]?.order||9);
+      if (po !== 0) return po;
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
+  }, [items, filterStatus, filterPriority, filterAssignee, search, currentUser]);
+ 
+  // KPIs
+  const active     = items.filter(i => i.status !== 'completed');
+  const mine       = active.filter(i => i.assigned_to === currentUser);
+  const overdue    = active.filter(i => i.due_date && new Date(i.due_date+'T12:00:00') < new Date());
+  const critical   = active.filter(i => i.priority === 'critical');
+  const escalated  = active.filter(i => i.status === 'escalated');
+ 
+  // By assignee breakdown
+  const byAssignee = useMemo(() => {
+    const groups = {};
+    active.forEach(i => {
+      const name = i.assigned_to || 'Unassigned';
+      if (!groups[name]) groups[name] = { total:0, critical:0, overdue:0 };
+      groups[name].total++;
+      if (i.priority === 'critical') groups[name].critical++;
+      if (i.due_date && new Date(i.due_date+'T12:00:00') < new Date()) groups[name].overdue++;
+    });
+    return Object.entries(groups).sort((a,b) => b[1].total - a[1].total);
+  }, [active]);
+ 
+  if (loading) return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:60, color:B.lightGray, fontFamily:"'DM Sans',sans-serif" }}>
+      Loading action items...
+    </div>
+  );
+ 
+  return (
+    <div style={{ fontFamily:"'DM Sans',sans-serif", color:B.black }}>
+ 
+      {/* Header */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+        <div>
+          <div style={{ fontSize:22, fontWeight:800, color:B.black, marginBottom:4 }}>📋 Action List</div>
+          <div style={{ fontSize:13, color:B.gray }}>
+            {active.length} open · {mine.length} assigned to me · {overdue.length > 0 ? <span style={{ color:B.danger, fontWeight:700 }}>{overdue.length} overdue</span> : '0 overdue'}
+          </div>
+        </div>
+        <button onClick={()=>{ setEditItem(null); setShowModal(true); }}
+          style={{ background:`linear-gradient(135deg,${B.red},${B.darkRed})`, border:'none', borderRadius:10, color:'#fff', padding:'10px 20px', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', display:'flex', alignItems:'center', gap:8 }}>
+          ➕ New Action
+        </button>
+      </div>
+ 
+      {/* KPI row */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:10, marginBottom:20 }}>
         {[
-          {label:'Critical',count:critCount,...PRIORITY_META.critical},
-          {label:'High',count:highCount,...PRIORITY_META.high},
-          {label:'Medium',count:medCount,...PRIORITY_META.medium},
-          {label:'Completed Today',count:doneItems.length,color:B.green,bg:'#F0FDF4',border:'#BBF7D0',icon:'✅'},
-        ].map(s=>(
-          <div key={s.label} onClick={()=>setFilterPriority(filterPriority===s.label.toLowerCase()?'all':s.label.toLowerCase())}
-            style={{ background:s.bg, border:`1px solid ${filterPriority===s.label.toLowerCase()?s.color:s.border}`, borderRadius:12, padding:'14px 16px', textAlign:'center', cursor:'pointer' }}>
-            <div style={{ fontSize:28, fontWeight:800, color:s.color, fontFamily:'monospace' }}>{s.count}</div>
-            <div style={{ fontSize:11, color:s.color, textTransform:'uppercase', letterSpacing:'0.08em', marginTop:3 }}>{s.icon} {s.label}</div>
+          { label:'Open', value:active.length, color:B.red, icon:'📋', filter:()=>setFilterStatus('active') },
+          { label:'My Actions', value:mine.length, color:B.blue, icon:'👤', filter:()=>setFilterAssignee('mine') },
+          { label:'Overdue', value:overdue.length, color:B.danger, icon:'⏰', alert:overdue.length>0, filter:()=>{ setFilterStatus('active'); setFilterAssignee('all'); } },
+          { label:'Critical', value:critical.length, color:B.danger, icon:'🚨', alert:critical.length>0, filter:()=>{ setFilterPriority('critical'); setFilterAssignee('all'); } },
+          { label:'Escalated', value:escalated.length, color:B.purple, icon:'⚡', alert:escalated.length>0, filter:()=>{ setFilterStatus('active'); setFilterAssignee('all'); } },
+        ].map(k=>(
+          <div key={k.label} onClick={k.filter} style={{ background:k.alert?`${k.color}08`:B.card, border:`1.5px solid ${k.alert?k.color:B.border}`, borderRadius:12, padding:'14px', textAlign:'center', cursor:'pointer', transition:'all 0.15s', boxShadow:k.alert?`0 2px 8px ${k.color}20`:'none' }}>
+            <div style={{ fontSize:20, marginBottom:4 }}>{k.icon}</div>
+            <div style={{ fontSize:26, fontWeight:800, color:k.color, fontFamily:"'DM Mono',monospace", lineHeight:1 }}>{k.value}</div>
+            <div style={{ fontSize:11, color:B.gray, marginTop:4 }}>{k.label}</div>
           </div>
         ))}
       </div>
-
-      {!hasCensus&&<div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:12, padding:'20px 24px', fontSize:13, color:B.blue, marginBottom:20 }}>ℹ️ Action list generates automatically once the director uploads the patient census.</div>}
-
-      {/* Rules editor */}
-      {showRules&&(
-        <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:14, padding:'20px 24px', marginBottom:20 }}>
-          <div style={{ fontSize:14, fontWeight:700, color:B.black, marginBottom:16 }}>⚙️ Action Rules</div>
-          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-            {rules.map((rule,idx)=>{
-              const meta=PRIORITY_META[rule.priority];
-              return (
-                <div key={rule.id} style={{ display:'grid', gridTemplateColumns:'32px 1fr 80px 100px 80px', gap:10, alignItems:'center', padding:'10px 12px', background:B.bg, borderRadius:8, border:`1px solid ${B.border}` }}>
-                  <input type="checkbox" checked={rule.enabled} onChange={e=>{ const r=[...rules]; r[idx]={...r[idx],enabled:e.target.checked}; saveRules(r); }} style={{ width:16, height:16, cursor:'pointer' }} />
-                  <div>
-                    <div style={{ fontSize:12, fontWeight:600, color:rule.enabled?B.black:B.lightGray }}>{rule.label}</div>
-                    <div style={{ fontSize:11, color:B.lightGray, marginTop:1 }}>{rule.action.slice(0,80)}...</div>
-                  </div>
-                  <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-                    <input type="number" min="1" max="365" value={rule.threshold}
-                      onChange={e=>{ const r=[...rules]; r[idx]={...r[idx],threshold:parseInt(e.target.value)||1}; saveRules(r); }}
-                      style={{ width:50, padding:'4px 6px', border:`1px solid ${B.border}`, borderRadius:6, fontSize:12, fontFamily:'inherit', color:B.black, outline:'none' }} />
-                    <span style={{ fontSize:11, color:B.lightGray }}>days</span>
-                  </div>
-                  <select value={rule.priority} onChange={e=>{ const r=[...rules]; r[idx]={...r[idx],priority:e.target.value}; saveRules(r); }}
-                    style={{ padding:'4px 6px', border:`1px solid ${B.border}`, borderRadius:6, fontSize:11, fontFamily:'inherit', color:meta.color, outline:'none', background:meta.bg }}>
-                    {['critical','high','medium','low'].map(p=><option key={p} value={p}>{p}</option>)}
-                  </select>
-                  <button onClick={()=>saveRules(rules.filter((_,i)=>i!==idx))} style={{ background:'none', border:`1px solid #FECACA`, borderRadius:6, color:B.danger, padding:'4px 8px', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>Remove</button>
-                </div>
-              );
-            })}
-          </div>
-          <button onClick={()=>saveRules([...rules,{id:`custom_${Date.now()}`,enabled:true,label:'New Rule',threshold:7,status:'on_hold',priority:'medium',action:'Custom action'}])}
-            style={{ marginTop:12, background:'none', border:`1px solid ${B.border}`, borderRadius:8, color:B.gray, padding:'8px 14px', fontSize:12, cursor:'pointer', fontFamily:'inherit' }}>
-            + Add Custom Rule
+ 
+      {/* Tabs */}
+      <div style={{ display:'flex', gap:0, borderBottom:`1px solid ${B.border}`, marginBottom:16 }}>
+        {[
+          { key:'list', label:'📋 All Actions' },
+          { key:'board', label:'👥 By Person' },
+        ].map(t=>(
+          <button key={t.key} onClick={()=>setActiveTab(t.key)}
+            style={{ background:'none', border:'none', borderBottom:`2px solid ${activeTab===t.key?B.red:'transparent'}`, color:activeTab===t.key?B.red:B.gray, padding:'10px 18px', fontSize:13, fontWeight:activeTab===t.key?700:400, cursor:'pointer', fontFamily:'inherit' }}>
+            {t.label}
           </button>
-        </div>
-      )}
-
-      {/* Action items */}
-      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-        {filtered.length===0&&hasCensus&&(
-          <div style={{ background:'#F0FDF4', border:'1px solid #BBF7D0', borderRadius:12, padding:'24px', textAlign:'center' }}>
-            <div style={{ fontSize:24, marginBottom:8 }}>✅</div>
-            <div style={{ fontSize:15, fontWeight:700, color:B.green }}>All clear for {filterPriority!=='all'?filterPriority:'today'}</div>
-            <div style={{ fontSize:12, color:B.green, marginTop:4 }}>No patients are breaching configured thresholds</div>
+        ))}
+      </div>
+ 
+      {/* List tab */}
+      {activeTab==='list'&&(
+        <>
+          {/* Filters */}
+          <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search actions or patients..."
+              style={{ padding:'7px 12px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', color:B.black, width:200 }} />
+            <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}
+              style={{ padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', color:B.black, outline:'none', background:'#fff' }}>
+              <option value="active">Active Only</option>
+              <option value="all">All Items</option>
+              <option value="completed">Completed</option>
+            </select>
+            <select value={filterPriority} onChange={e=>setFilterPriority(e.target.value)}
+              style={{ padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', color:B.black, outline:'none', background:'#fff' }}>
+              <option value="all">All Priorities</option>
+              {Object.entries(PRIORITY_META).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label}</option>)}
+            </select>
+            <select value={filterAssignee} onChange={e=>setFilterAssignee(e.target.value)}
+              style={{ padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', color:B.black, outline:'none', background:'#fff' }}>
+              <option value="mine">My Actions</option>
+              <option value="all">All Staff</option>
+              {ALL_STAFF.map(n=><option key={n} value={n}>{n.split(' ')[0]}</option>)}
+            </select>
+            <span style={{ fontSize:11, color:B.lightGray, marginLeft:'auto' }}>{visible.length} items</span>
           </div>
-        )}
-
-        {filtered.map(item=>{
-          const meta=PRIORITY_META[item.priority];
-          return (
-            <div key={item.id} style={{ background:B.card, border:`1.5px solid ${meta.border}`, borderLeft:`5px solid ${meta.color}`, borderRadius:12, padding:'16px 20px' }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12 }}>
-                <div style={{ flex:1 }}>
-                  <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:8, flexWrap:'wrap' }}>
-                    <span style={{ background:meta.bg, color:meta.color, border:`1px solid ${meta.border}`, borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700 }}>{meta.icon} {meta.label}</span>
-                    <span style={{ fontSize:11, color:B.lightGray }}>{item.ruleLabel}</span>
-                  </div>
-                  <div style={{ fontSize:15, fontWeight:800, color:B.black, marginBottom:4 }}>{item.patient}</div>
-                  <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom:10 }}>
-                    {[{label:'Payer',value:item.payer,color:B.blue},{label:'Region',value:item.region,color:B.red},{label:'Days in Status',value:`${item.days}d`,color:item.days>14?B.danger:B.yellow}].map(f=>(
-                      <div key={f.label} style={{ fontSize:11 }}>
-                        <span style={{ color:B.lightGray }}>{f.label}: </span>
-                        <span style={{ fontWeight:700, color:f.color }}>{f.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ background:meta.bg, border:`1px solid ${meta.border}`, borderRadius:8, padding:'10px 12px', marginBottom:10 }}>
-                    <div style={{ fontSize:11, fontWeight:700, color:meta.color, marginBottom:4 }}>REQUIRED ACTION</div>
-                    <div style={{ fontSize:12, color:B.black, lineHeight:1.6 }}>{item.action}</div>
-                  </div>
-                  <div style={{ display:'flex', gap:8, alignItems:'flex-start' }}>
-                    <input value={notes[item.id]||''} onChange={e=>saveNote(item.id,e.target.value)}
-                      placeholder="Add note (who you called, what was said, next step)..."
-                      style={{ flex:1, padding:'7px 10px', border:`1px solid ${B.border}`, borderRadius:6, fontSize:12, fontFamily:'inherit', outline:'none', color:B.black }} />
-                    <button onClick={()=>toggleDone(item.id)} style={{ background:completed[item.id]?B.green:'transparent', border:`1.5px solid ${completed[item.id]?B.green:B.border}`, borderRadius:8, color:completed[item.id]?'#fff':B.gray, padding:'7px 14px', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' }}>
-                      {completed[item.id]?'✓ Done':'Mark Done'}
-                    </button>
-                  </div>
-                </div>
+ 
+          {/* Action cards */}
+          {visible.length === 0 ? (
+            <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:14, padding:'40px', textAlign:'center' }}>
+              <div style={{ fontSize:32, marginBottom:10 }}>✅</div>
+              <div style={{ fontSize:15, fontWeight:700, color:B.black, marginBottom:6 }}>
+                {filterStatus==='active'&&filterAssignee==='mine' ? 'No open actions assigned to you' : 'No actions match these filters'}
+              </div>
+              <div style={{ fontSize:13, color:B.gray }}>
+                {filterStatus==='active'&&filterAssignee==='mine' ? 'You\'re all caught up!' : 'Try adjusting the filters above'}
               </div>
             </div>
-          );
-        })}
-      </div>
-
-      {doneItems.length>0&&(
-        <div style={{ marginTop:20 }}>
-          <div style={{ fontSize:13, fontWeight:700, color:B.lightGray, marginBottom:10 }}>✅ Completed today ({doneItems.length})</div>
-          {doneItems.map(item=>(
-            <div key={item.id} style={{ background:'#F9FAFB', border:'1px solid #E5E7EB', borderRadius:10, padding:'10px 16px', marginBottom:6, display:'flex', justifyContent:'space-between', alignItems:'center', opacity:0.7 }}>
-              <div>
-                <span style={{ fontSize:12, fontWeight:600, color:B.black }}>{item.patient}</span>
-                <span style={{ fontSize:11, color:B.lightGray, marginLeft:8 }}>{item.ruleLabel}</span>
-                {notes[item.id]&&<div style={{ fontSize:11, color:B.gray, marginTop:2 }}>Note: {notes[item.id]}</div>}
+          ) : (
+            <div>
+              {visible.map(item=>(
+                <ActionCard key={item.id} item={item} currentUser={currentUser} isLeader={isLeader}
+                  onUpdate={loadItems} onEdit={i=>{ setEditItem(i); setShowModal(true); }} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+ 
+      {/* By Person tab */}
+      {activeTab==='board'&&(
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))', gap:12 }}>
+          {byAssignee.map(([name, stats])=>(
+            <div key={name} style={{ background:B.card, border:`1.5px solid ${stats.critical>0||stats.overdue>0?B.danger:B.border}`, borderRadius:14, padding:'16px 18px', boxShadow:stats.critical>0?`0 2px 8px ${B.danger}15`:'none' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <div style={{ width:34, height:34, borderRadius:'50%', background:`linear-gradient(135deg,${B.red},${B.darkRed})`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:800, color:'#fff' }}>
+                    {name[0]?.toUpperCase()||'?'}
+                  </div>
+                  <div style={{ fontSize:13, fontWeight:700, color:B.black }}>{name.split(' ')[0]} {name.split(' ')[1]?name.split(' ')[1][0]+'.':''}</div>
+                </div>
+                <div style={{ fontSize:22, fontWeight:800, color:B.red, fontFamily:"'DM Mono',monospace" }}>{stats.total}</div>
               </div>
-              <button onClick={()=>toggleDone(item.id)} style={{ background:'none', border:`1px solid ${B.border}`, borderRadius:6, color:B.gray, padding:'4px 10px', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>Undo</button>
+              <div style={{ display:'flex', gap:8 }}>
+                {stats.critical > 0 && <span style={{ fontSize:10, background:'#FEF2F2', color:B.danger, border:'1px solid #FECACA', borderRadius:10, padding:'2px 8px', fontWeight:700 }}>🚨 {stats.critical} critical</span>}
+                {stats.overdue > 0  && <span style={{ fontSize:10, background:'#FFF7ED', color:B.orange, border:'1px solid #FED7AA', borderRadius:10, padding:'2px 8px', fontWeight:700 }}>⏰ {stats.overdue} overdue</span>}
+                {stats.critical===0&&stats.overdue===0&&<span style={{ fontSize:10, color:B.lightGray }}>On track</span>}
+              </div>
+              <button onClick={()=>{ setFilterAssignee(name); setActiveTab('list'); }}
+                style={{ marginTop:10, width:'100%', background:'none', border:`1px solid ${B.border}`, borderRadius:8, color:B.gray, padding:'6px', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>
+                View Actions →
+              </button>
             </div>
           ))}
+          {byAssignee.length===0&&(
+            <div style={{ gridColumn:'1/-1', textAlign:'center', padding:'40px', color:B.lightGray, fontSize:13 }}>No open actions yet — create one above</div>
+          )}
         </div>
+      )}
+ 
+      {/* Modal */}
+      {showModal&&(
+        <ActionModal
+          action={editItem}
+          currentUser={currentUser}
+          onSave={()=>{ loadItems(); setShowModal(false); setEditItem(null); }}
+          onClose={()=>{ setShowModal(false); setEditItem(null); }}
+        />
       )}
     </div>
   );
