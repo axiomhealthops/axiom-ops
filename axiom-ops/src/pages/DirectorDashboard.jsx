@@ -3,14 +3,14 @@ import { supabase } from '../lib/supabase';
 import { useOpsData } from '../hooks/useOpsData';
 import { useAuth } from '../hooks/useAuth';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
-
+ 
 if (typeof window !== 'undefined' && !window.XLSX && !document.querySelector('script[src*="xlsx"]')) {
   const script = document.createElement('script');
   script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
   script.async = true;
   document.head.appendChild(script);
 }
-
+ 
 function withXLSX(callback, onError) {
   if (window.XLSX) { callback(window.XLSX); return; }
   let attempts = 0;
@@ -20,17 +20,17 @@ function withXLSX(callback, onError) {
     else if (attempts > 40) { clearInterval(check); onError('Excel parser timed out. Try refreshing the page.'); }
   }, 250);
 }
-
+ 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10', orange:'#E8763A',
   black:'#1A1A1A', gray:'#8B6B64', lightGray:'#BBA8A4',
   border:'#F0E4E0', bg:'#FBF7F6', cardBg:'#fff',
   green:'#2E7D32', yellow:'#D97706', danger:'#DC2626', blue:'#1565C0',
 };
-
+ 
 const VISIT_TARGET = 800;
 const COORD_COLORS = { 'Gypsy':B.red, 'Mary':B.green, 'Audrey':B.orange, 'April':B.darkRed };
-
+ 
 function parseCSVLine(line) {
   const result=[]; let current=''; let inQuotes=false;
   for (let i=0;i<line.length;i++) {
@@ -41,7 +41,7 @@ function parseCSVLine(line) {
   result.push(current.trim());
   return result;
 }
-
+ 
 function parseParioxCSV(text) {
   const lines=text.trim().split('\n');
   if (lines.length<2) return null;
@@ -117,7 +117,7 @@ function parseParioxCSV(text) {
   const staffList=Object.values(staffMap).map(s=>({name:s.name,discipline:s.discipline,regions:Array.from(s.regions).sort().join(', '),regionCount:s.regions.size,totalVisits:s.totalVisits,uniquePatients:s.uniquePatients.size}));
   return {completedVisits:dedupedCompleted,missedVisits:missed,scheduledVisits:dedupedScheduled,rawScheduled:scheduled,rawCompleted:completed,dailyTrend,rowCount:lines.length-1,uniquePatients:patientSet.size,staffList,staffStats,dedupedCount:dedupedScheduled,rawCount:scheduled};
 }
-
+ 
 function StatCard({ label, value, sub, color=B.red, alert, icon }) {
   return (
     <div style={{ background:B.cardBg, border:`1px solid ${B.border}`, borderRadius:14, padding:'18px 20px', position:'relative', overflow:'hidden', boxShadow:'0 1px 4px rgba(139,26,16,0.06)' }}>
@@ -129,7 +129,7 @@ function StatCard({ label, value, sub, color=B.red, alert, icon }) {
     </div>
   );
 }
-
+ 
 function AlertItem({ text, severity }) {
   const map={critical:{color:B.danger,bg:'#FEF2F2',border:'#FECACA',icon:'🔴'},warning:{color:B.yellow,bg:'#FFFBEB',border:'#FDE68A',icon:'🟡'},info:{color:B.red,bg:'#FFF5F2',border:'#FDDDD5',icon:'🔵'}};
   const s=map[severity];
@@ -140,7 +140,7 @@ function AlertItem({ text, severity }) {
     </div>
   );
 }
-
+ 
 function CoordRow({ report, coordinator }) {
   const color=COORD_COLORS[coordinator?.name]||B.red;
   const caseload=report?.active_patients||0;
@@ -168,7 +168,7 @@ function CoordRow({ report, coordinator }) {
     </div>
   );
 }
-
+ 
 const CustomTooltip=({active,payload,label})=>{
   if (!active||!payload?.length) return null;
   return (
@@ -178,14 +178,14 @@ const CustomTooltip=({active,payload,label})=>{
     </div>
   );
 };
-
+ 
 function CSVUploadPanel({ onDataLoaded, csvData }) {
   const [dragging,setDragging]=useState(false);
   const [processing,setProcessing]=useState(false);
   const [error,setError]=useState('');
   const [lastFile,setLastFile]=useState('');
   const fileRef=useRef();
-
+ 
   function processRows(rows,headersArr,statusIdx,dateIdx) {
     let completed=0,missed=0,scheduled=0;
     const dailyMap={};
@@ -290,7 +290,7 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
     const xlsxStaffList=Object.values(staffMap).map(s=>({name:s.name,discipline:s.discipline,regions:Array.from(s.regions).sort().join(', '),regionCount:s.regions.size,totalVisits:s.totalVisits,uniquePatients:s.uniquePatients.size}));
     return {completedVisits:xDedupedComp,missedVisits:missed,scheduledVisits:xDedupedSched,rawScheduled:scheduled,rawCompleted:completed,dailyTrend,rowCount:rows.length-1,regionData,uniquePatients:xlsxPatientSet.size,staffList:xlsxStaffList,staffStats:xlsxStaffStats,dedupedCount:xDedupedSched,rawCount:scheduled};
   }
-
+ 
   function handleFile(file) {
     if (!file) return;
     if (!file.name.match(/\.(csv|xlsx|xls)$/i)) { setError('Please upload a CSV or Excel file from Pariox'); return; }
@@ -303,7 +303,7 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
           try {
             const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
             const ws=wb.Sheets[wb.SheetNames[0]];
-            const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,dateNF:'mm/dd/yyyy'});
+            const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,dateNF:'mm/dd/yyyy',defval:''});
             const headers=(rows[0]||[]).map(h=>String(h||'').toLowerCase().trim());
             const statusIdx=headers.findIndex(h=>h.includes('status'));
             const dateIdx=headers.findIndex(h=>h==='date');
@@ -330,7 +330,7 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
       reader.readAsText(file);
     }
   }
-
+ 
   return (
     <div style={{ background:B.cardBg, border:`1px solid ${B.border}`, borderRadius:16, padding:'24px', boxShadow:'0 1px 4px rgba(139,26,16,0.06)', marginBottom:20 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
@@ -363,12 +363,12 @@ function CSVUploadPanel({ onDataLoaded, csvData }) {
     </div>
   );
 }
-
+ 
 function CensusUploadPanel({ censusData, onDataLoaded, parseCensusFile, error, setError, processing, setProcessing }) {
   const [dragging,setDragging]=useState(false);
   const fileRef=useRef();
   const STATUS_META={active:{label:'Active',color:'#2E7D32',icon:'✅'},active_auth_pending:{label:'Active–Auth Pending',color:'#E8763A',icon:'⏳'},auth_pending:{label:'Auth Pending',color:'#D97706',icon:'🔒'},soc_pending:{label:'SOC Pending',color:'#0284C7',icon:'📅'},eval_pending:{label:'Eval Pending',color:'#1565C0',icon:'🩺'},waitlist:{label:'Waitlist',color:'#7C3AED',icon:'📋'},on_hold:{label:'On Hold',color:'#6B7280',icon:'⏸️'},on_hold_facility:{label:'On Hold – Facility',color:'#9CA3AF',icon:'🏥'},on_hold_pt:{label:'On Hold – Pt Req',color:'#9CA3AF',icon:'🙋'},on_hold_md:{label:'On Hold – MD Req',color:'#9CA3AF',icon:'👨‍⚕️'},hospitalized:{label:'Hospitalized',color:'#DC2626',icon:'🚨'},discharge:{label:'Discharge',color:'#BBA8A4',icon:'📤'}};
-
+ 
   function handleFile(file) {
     if (!file) return;
     if (!file.name.match(/\.(csv|xlsx|xls)$/i)) { setError('Please upload a CSV or Excel census file'); return; }
@@ -400,7 +400,7 @@ function CensusUploadPanel({ censusData, onDataLoaded, parseCensusFile, error, s
       reader.readAsText(file);
     }
   }
-
+ 
   const totalCensus=censusData?Object.values(censusData.counts).reduce((s,v)=>s+v,0):0;
   return (
     <div style={{ background:'#fff', border:'1px solid #F0E4E0', borderRadius:16, padding:'24px', boxShadow:'0 1px 4px rgba(139,26,16,0.06)', marginBottom:20 }}>
@@ -441,7 +441,7 @@ function CensusUploadPanel({ censusData, onDataLoaded, parseCensusFile, error, s
     </div>
   );
 }
-
+ 
 function GoogleDriveLinkPanel({ driveLinks, onAddLink, onRemoveLink }) {
   const [newLink,setNewLink]=useState({label:'',url:''});
   const [adding,setAdding]=useState(false);
@@ -476,7 +476,7 @@ function GoogleDriveLinkPanel({ driveLinks, onAddLink, onRemoveLink }) {
     </div>
   );
 }
-
+ 
 export default function DirectorDashboard({ initialTab='overview', readOnly=false }) {
   const { signOut } = useAuth();
   const { uploadCensus, uploadVisitSchedule } = useOpsData();
@@ -513,13 +513,13 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
   const [adminPinError,setAdminPinError]=useState(false);
   const [settingsDraft,setSettingsDraft]=useState(null);
   const CFG=settings||DEFAULT_SETTINGS;
-
+ 
   const saveSettings=s=>{setSettings(s);try{localStorage.setItem('axiom_settings',JSON.stringify(s));}catch(e){}};
   const saveOnHoldTracking=d=>{setOnHoldTracking(d);try{localStorage.setItem('axiom_onhold_tracking',JSON.stringify(d));}catch(e){}};
   const saveAuthPipeline=d=>{setAuthPipeline(d);try{localStorage.setItem('axiom_auth_pipeline',JSON.stringify(d));}catch(e){}};
   const addDriveLink=link=>{const u=[...driveLinks,link];setDriveLinks(u);localStorage.setItem('axiom_drive_links',JSON.stringify(u));};
   const removeDriveLink=id=>{const u=driveLinks.filter(l=>l.id!==id);setDriveLinks(u);localStorage.setItem('axiom_drive_links',JSON.stringify(u));};
-
+ 
   // ── PATCHED: saveCensusData writes to Supabase ──
   const saveCensusData = async (data) => {
     setCensusData(data);
@@ -528,7 +528,7 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
       await uploadCensus(data.patients);
     }
   };
-
+ 
   // ── PATCHED: handleCSV also writes visit schedule to Supabase ──
   const handleCSV = async data => {
     setCsvData(data);
@@ -552,7 +552,7 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
       await uploadVisitSchedule(data);
     }
   };
-
+ 
   const parseCensusFile=(text)=>{
     const rawLines=text.trim().split('\n');
     if (rawLines.length<2) return null;
@@ -596,14 +596,14 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
     }
     return {counts,byRegion,patients,total:rawLines.length-1,activeCensus:counts.active+counts.active_auth_pending,lastUpdated:new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),detectedStatusCol:rawLines[0].split(',')[statusIdx2]||'Status'};
   };
-
+ 
   useEffect(()=>{
     loadData();
     const t=setInterval(()=>setTime(new Date()),1000);
     const sub=supabase.channel('reports').on('postgres_changes',{event:'*',schema:'public',table:'daily_reports'},loadData).subscribe();
     return ()=>{clearInterval(t);sub.unsubscribe();};
   },[]);
-
+ 
   const loadData=useCallback(async()=>{
     const today=new Date().toISOString().split('T')[0];
     const days=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(6-i));return d.toISOString().split('T')[0];});
@@ -619,7 +619,7 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
     setWeeklyData(days.map(day=>({day:new Date(day+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'numeric',day:'numeric'}),visits:(trendRes.data||[]).filter(r=>r.report_date===day).reduce((s,r)=>s+(r.visits_completed||0),0),target:Math.round(VISIT_TARGET/5)})));
     setLoading(false);
   },[]);
-
+ 
   const sum=(key,r)=>r.reduce((s,x)=>s+(x[key]||0),0);
   const hasPariox=!!(csvData&&csvData.scheduledVisits>0);
   const hasCensus=!!(censusData&&censusData.counts);
@@ -638,16 +638,16 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
   const reportsIn=morningReports.length;
   const dataSource=hasPariox?`Pariox · ${csvData.rowCount} records`:'Coordinator Reports';
   const activeNotSeen=hasCensus&&hasPariox?Math.max(0,(censusData.activeCensus||0)-(csvData.uniquePatients||0)):null;
-
+ 
   const STATUS_META_OV={active:{label:'Active',color:B.green,bg:'#F0FDF4',border:'#BBF7D0',icon:'✅',desc:'In treatment'},active_auth_pending:{label:'Active–Auth Pend',color:B.orange,bg:'#FFF7ED',border:'#FED7AA',icon:'⏳',desc:'Auth at risk'},auth_pending:{label:'Auth Pending',color:B.yellow,bg:'#FFFBEB',border:'#FDE68A',icon:'🔒',desc:'Blocked'},soc_pending:{label:'SOC Pending',color:'#0284C7',bg:'#F0F9FF',border:'#BAE6FD',icon:'📅',desc:'Start of care pending'},eval_pending:{label:'Eval Pending',color:'#1565C0',bg:'#EFF6FF',border:'#BFDBFE',icon:'🩺',desc:'Pipeline'},waitlist:{label:'Waitlist',color:'#7C3AED',bg:'#F5F3FF',border:'#DDD6FE',icon:'📋',desc:'Needs scheduling'},on_hold:{label:'On Hold',color:'#6B7280',bg:'#F9FAFB',border:'#E5E7EB',icon:'⏸️',desc:'Revenue paused'},on_hold_facility:{label:'On Hold–Facility',color:'#9CA3AF',bg:'#F9FAFB',border:'#E5E7EB',icon:'🏥',desc:'Facility hold'},on_hold_pt:{label:'On Hold–Pt Req',color:'#9CA3AF',bg:'#F9FAFB',border:'#E5E7EB',icon:'🙋',desc:'Patient requested'},on_hold_md:{label:'On Hold–MD Req',color:'#9CA3AF',bg:'#F9FAFB',border:'#E5E7EB',icon:'👨‍⚕️',desc:'MD ordered hold'},hospitalized:{label:'Hospitalized',color:'#DC2626',bg:'#FEF2F2',border:'#FECACA',icon:'🚨',desc:'In hospital'},discharge:{label:'Discharge',color:'#BBA8A4',bg:'#FAFAFA',border:'#E5E7EB',icon:'📤',desc:'Discharged'}};
-
+ 
   if (loading) return <div style={{ minHeight:'100vh', background:B.bg, display:'flex', alignItems:'center', justifyContent:'center', color:B.lightGray, fontFamily:'DM Sans,sans-serif' }}>Loading...</div>;
-
+ 
   return (
     <div style={{ minHeight:'100vh', background:B.bg, color:B.black, fontFamily:"'DM Sans',sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500;700&display=swap');*{box-sizing:border-box;}::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-thumb{background:#E8D5D0;border-radius:2px;}`}</style>
       <div style={{ padding:'24px 28px', maxWidth:1400, margin:'0 auto' }}>
-
+ 
         {/* ── OVERVIEW ── */}
         {activeTab==='overview'&&(
           <>
@@ -672,7 +672,7 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
               </div>}
               {hasPariox&&<div style={{ position:'absolute', top:10, right:14, fontSize:10, color:'rgba(255,255,255,0.5)', background:'rgba(0,0,0,0.15)', borderRadius:6, padding:'3px 8px' }}>{dataSource}</div>}
             </div>
-
+ 
             <div style={{ background:B.cardBg, border:`1px solid ${B.border}`, borderRadius:18, padding:'24px 32px', marginBottom:20, display:'flex', alignItems:'center', gap:32, flexWrap:'wrap', boxShadow:'0 1px 6px rgba(139,26,16,0.06)' }}>
               <div style={{ flex:1, minWidth:280 }}>
                 <div style={{ fontSize:11, color:B.lightGray, letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:8 }}>Weekly Visit Target</div>
@@ -690,7 +690,7 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
                 </div>
               ))}
             </div>
-
+ 
             <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14, marginBottom:14 }}>
               <StatCard icon="👥" label="Patient Census" value={totalPatients||'—'} sub={hasPariox?`${totalPatients} unique patients`:"From coordinator reports"} color={B.red} />
               <StatCard icon="✅" label="Completed This Week" value={totalCompleted||'—'} sub={`${totalMissed} missed · ${csvData?.rawCount||0} raw rows`} color={B.green} />
@@ -703,12 +703,12 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
               <StatCard icon="📌" label="Open Tasks" value={totalOpenTasks||0} sub="Team total" color={B.orange} />
               <StatCard icon="📊" label="Morning Reports" value={`${reportsIn}/${coordinators.length}`} sub="Submitted by 9 AM" color={reportsIn<coordinators.length?B.danger:B.green} alert={reportsIn<coordinators.length?`${coordinators.length-reportsIn} missing`:null} />
             </div>
-
+ 
             {activeNotSeen!=null&&activeNotSeen>0&&<div style={{ background:activeNotSeen>50?'#FEF2F2':'#FFFBEB', border:`1px solid ${activeNotSeen>50?'#FECACA':'#FDE68A'}`, borderRadius:14, padding:'16px 22px', marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
               <div><div style={{ fontSize:14, fontWeight:800, color:activeNotSeen>50?B.danger:B.yellow, marginBottom:4 }}>{activeNotSeen>50?'🚨':'⚠️'} {activeNotSeen} Active Patients Not Scheduled This Week</div><div style={{ fontSize:11, color:B.lightGray, marginTop:4 }}>Estimated revenue at risk: ~${(activeNotSeen*CFG.authRiskVisitsPerWeek*CFG.avgReimbursement/1000).toFixed(1)}K/week</div></div>
               <div style={{ textAlign:'center', marginLeft:24, background:'rgba(255,255,255,0.6)', borderRadius:12, padding:'14px 20px' }}><div style={{ fontSize:40, fontWeight:800, color:activeNotSeen>50?B.danger:B.yellow, fontFamily:"'DM Mono',monospace" }}>{activeNotSeen}</div><div style={{ fontSize:10, color:B.lightGray, textTransform:'uppercase' }}>unscheduled</div></div>
             </div>}
-
+ 
             {(()=>{
               const regionKeys=hasCensus?Object.keys(censusData.byRegion||{}).sort():[];
               const displayCounts=hasCensus&&selectedCensusRegion!=='all'&&censusData.byRegion[selectedCensusRegion]?censusData.byRegion[selectedCensusRegion]:(hasCensus?censusData.counts:null);
@@ -750,7 +750,7 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
                 </div>
               );
             })()}
-
+ 
             <div style={{ background:B.cardBg, border:`1px solid ${B.border}`, borderRadius:16, padding:'20px 24px', boxShadow:'0 1px 6px rgba(139,26,16,0.06)' }}>
               <div style={{ fontSize:12, fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase', color:B.lightGray, marginBottom:14 }}>Live Alerts</div>
               {coordinators.filter(c=>!morningReports.find(r=>r.coordinator_id===c.id)).map(c=><AlertItem key={c.id} text={`${c.name} — Morning report not submitted`} severity="critical" />)}
@@ -763,7 +763,7 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
             </div>
           </>
         )}
-
+ 
         {/* ── TEAM ── */}
         {activeTab==='team'&&(
           <div>
@@ -776,7 +776,7 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
             </div>
           </div>
         )}
-
+ 
         {/* ── TRENDS ── */}
         {activeTab==='trends'&&(
           <div>
@@ -801,7 +801,7 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
             </div>
           </div>
         )}
-
+ 
         {/* ── DATA ── */}
         {activeTab==='data'&&(
           <div>
@@ -811,7 +811,7 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
             <GoogleDriveLinkPanel driveLinks={driveLinks} onAddLink={addDriveLink} onRemoveLink={removeDriveLink} />
           </div>
         )}
-
+ 
         {/* ── SETTINGS ── */}
         {activeTab==='⚙️'&&(()=>{
           const draft=settingsDraft||CFG;
@@ -855,8 +855,9 @@ export default function DirectorDashboard({ initialTab='overview', readOnly=fals
             </div>
           );
         })()}
-
+ 
       </div>
     </div>
   );
 }
+ 
