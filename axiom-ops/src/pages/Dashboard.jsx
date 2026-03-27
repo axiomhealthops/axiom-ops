@@ -14,6 +14,7 @@ import SuperAdminPanel from './SuperAdminPanel';
 import GlobalSearch from './GlobalSearch';
 import AuthTimeline from './AuthTimeline';
 import OnHoldRecovery from './OnHoldRecovery';
+import DailyReports from './DailyReports';
  
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10',
@@ -97,6 +98,7 @@ export default function Dashboard() {
     if (currentPage === 'superadmin') return <SuperAdminPanel />;
     if (currentPage === 'authtimeline') return <AuthTimeline />;
     if (currentPage === 'recovery') return <OnHoldRecovery />;
+    if (currentPage === 'reports') return <DailyReports />;
     return <DirectorDashboard key={tab} initialTab={tab} />;
   };
  
