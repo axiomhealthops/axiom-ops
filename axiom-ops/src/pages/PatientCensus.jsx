@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import { useOpsData } from '../hooks/useOpsData';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
@@ -42,7 +42,6 @@ const CENSUS_STATUS_META = {
 
 const CARE_COORDINATORS = ['Gypsy Renos','Mary Imperio','Audrey Sarmiento','April Manalo'];
 const AUTH_COORDINATORS  = ['Carla Smith','Ethel Camposano','Gerilyn Bayson','Uriel Sarabosing'];
-
 const DOC_TYPES = [
   'Auth Request + PCP Signature','Authorization Approval','Authorization Denial',
   'Appeal Letter','Clinical Notes','Plan of Care','Referral','VOB Documentation','Other',
@@ -58,7 +57,6 @@ function fmtDate(d) {
   catch { return d; }
 }
 
-// ── Field helpers ──────────────────────────────────────────────
 function Field({ label, value, color, mono }) {
   return (
     <div>
@@ -68,11 +66,10 @@ function Field({ label, value, color, mono }) {
   );
 }
 
-function StatusBadge({ status, meta }) {
-  const m = meta || { label: status, color: B.gray, bg: B.bg, border: B.border };
+function StatusBadge({ meta }) {
   return (
-    <span style={{ background:m.bg, color:m.color, border:`1px solid ${m.border}`, borderRadius:20, padding:'3px 10px', fontSize:12, fontWeight:700 }}>
-      {m.label}
+    <span style={{ background:meta.bg, color:meta.color, border:`1px solid ${meta.border}`, borderRadius:20, padding:'3px 10px', fontSize:12, fontWeight:700 }}>
+      {meta.label}
     </span>
   );
 }
@@ -89,46 +86,35 @@ function SectionCard({ title, icon, children, accent }) {
   );
 }
 
-// ── Main PatientProfile ────────────────────────────────────────
 function PatientProfile({ patientName, onClose }) {
   const { profile, isSuperAdmin, isDirector, isTeamLeader } = useAuth();
   const isLeaderOrAbove = isSuperAdmin || isDirector || isTeamLeader;
   const uploaderName = profile?.full_name || profile?.name || 'User';
-
-  // Data state
-  const [censusRecord, setCensusRecord]   = useState(null);
-  const [authRecord, setAuthRecord]       = useState(null);
-  const [visitRecords, setVisitRecords]   = useState([]);
-  const [documents, setDocuments]         = useState([]);
-  const [loading, setLoading]             = useState(true);
-  const [activeTab, setActiveTab]         = useState('overview');
-
-  // Edit state
-  const [editingAuth, setEditingAuth]     = useState(false);
+  const [censusRecord, setCensusRecord] = useState(null);
+  const [authRecord, setAuthRecord]     = useState(null);
+  const [documents, setDocuments]       = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [activeTab, setActiveTab]       = useState('overview');
+  const [editingAuth, setEditingAuth]   = useState(false);
   const [editingCensus, setEditingCensus] = useState(false);
-  const [authForm, setAuthForm]           = useState({});
-  const [censusForm, setCensusForm]       = useState({});
-  const [saving, setSaving]               = useState(false);
-
-  // Doc upload
-  const [docType, setDocType]             = useState('Auth Request + PCP Signature');
-  const [docNotes, setDocNotes]           = useState('');
-  const [uploading, setUploading]         = useState(false);
-  const [uploadMsg, setUploadMsg]         = useState('');
-  const [dragOver, setDragOver]           = useState(false);
-  const fileRef                           = useRef();
+  const [authForm, setAuthForm]         = useState({});
+  const [censusForm, setCensusForm]     = useState({});
+  const [saving, setSaving]             = useState(false);
+  const [docType, setDocType]           = useState('Auth Request + PCP Signature');
+  const [docNotes, setDocNotes]         = useState('');
+  const [uploading, setUploading]       = useState(false);
+  const [uploadMsg, setUploadMsg]       = useState('');
+  const [dragOver, setDragOver]         = useState(false);
+  const fileRef = useRef();
 
   const loadAll = async () => {
-    const name = patientName;
-    const [censusRes, authRes, visitRes, docRes] = await Promise.all([
-      supabase.from('patient_census').select('*').ilike('patient_name', name).maybeSingle(),
-      supabase.from('auth_records').select('*').ilike('patient_name', name).order('updated_at', {ascending:false}).limit(1).maybeSingle(),
-      supabase.from('visit_schedule').select('*').ilike('coordinator', '%').order('visit_date', {ascending:false}),
-      supabase.from('auth_documents').select('*').ilike('patient_name', name).order('uploaded_at', {ascending:false}),
+    const [censusRes, authRes, docRes] = await Promise.all([
+      supabase.from('patient_census').select('*').ilike('patient_name', patientName).maybeSingle(),
+      supabase.from('auth_records').select('*').ilike('patient_name', patientName).order('updated_at',{ascending:false}).limit(1).maybeSingle(),
+      supabase.from('auth_documents').select('*').ilike('patient_name', patientName).order('uploaded_at',{ascending:false}),
     ]);
     setCensusRecord(censusRes.data);
     setAuthRecord(authRes.data);
-    setVisitRecords(visitRes.data || []);
     setDocuments(docRes.data || []);
     setLoading(false);
     if (authRes.data) setAuthForm({...authRes.data});
@@ -137,54 +123,36 @@ function PatientProfile({ patientName, onClose }) {
 
   useEffect(() => { loadAll(); }, [patientName]);
 
-  // Save auth
   const saveAuth = async () => {
     setSaving(true);
     if (authRecord?.id) {
       await supabase.from('auth_records').update({
-        auth_number: authForm.auth_number||null,
-        auth_from: authForm.auth_from||null,
-        auth_thru: authForm.auth_thru||null,
-        tx_approved: parseInt(authForm.tx_approved)||0,
-        tx_used: parseInt(authForm.tx_used)||0,
-        ra_approved: parseInt(authForm.ra_approved)||0,
-        ra_used: parseInt(authForm.ra_used)||0,
-        eval_approved: parseInt(authForm.eval_approved)||0,
-        eval_used: parseInt(authForm.eval_used)||0,
-        auth_status: authForm.auth_status||'active',
-        payer: authForm.payer||null,
-        region: authForm.region||null,
-        assigned_to: authForm.assigned_to||null,
-        pcp: authForm.pcp||null,
-        last_call_date: authForm.last_call_date||null,
-        last_call_notes: authForm.last_call_notes||null,
-        next_follow_up: authForm.next_follow_up||null,
-        notes: authForm.notes||null,
-        vob_verified: authForm.vob_verified||false,
-        updated_at: new Date().toISOString(),
+        auth_number: authForm.auth_number||null, auth_from: authForm.auth_from||null,
+        auth_thru: authForm.auth_thru||null, tx_approved: parseInt(authForm.tx_approved)||0,
+        tx_used: parseInt(authForm.tx_used)||0, ra_approved: parseInt(authForm.ra_approved)||0,
+        ra_used: parseInt(authForm.ra_used)||0, eval_approved: parseInt(authForm.eval_approved)||0,
+        eval_used: parseInt(authForm.eval_used)||0, auth_status: authForm.auth_status||'active',
+        payer: authForm.payer||null, region: authForm.region||null,
+        assigned_to: authForm.assigned_to||null, pcp: authForm.pcp||null,
+        last_call_date: authForm.last_call_date||null, last_call_notes: authForm.last_call_notes||null,
+        next_follow_up: authForm.next_follow_up||null, notes: authForm.notes||null,
+        vob_verified: authForm.vob_verified||false, updated_at: new Date().toISOString(),
       }).eq('id', authRecord.id);
     }
-    setSaving(false);
-    setEditingAuth(false);
-    loadAll();
+    setSaving(false); setEditingAuth(false); loadAll();
   };
 
-  // Save census
   const saveCensus = async () => {
     setSaving(true);
     if (censusRecord?.id) {
       await supabase.from('patient_census').update({
-        status: censusForm.status||'active',
-        notes: censusForm.notes||null,
+        status: censusForm.status||'active', notes: censusForm.notes||null,
         updated_at: new Date().toISOString(),
       }).eq('id', censusRecord.id);
     }
-    setSaving(false);
-    setEditingCensus(false);
-    loadAll();
+    setSaving(false); setEditingCensus(false); loadAll();
   };
 
-  // Upload doc
   const uploadFile = async (file) => {
     if (!file) return;
     if (file.size > 50*1024*1024) { alert('File too large — max 50MB'); return; }
@@ -194,20 +162,17 @@ function PatientProfile({ patientName, onClose }) {
       const safeName = patientName.replace(/[^a-zA-Z0-9]/g,'_');
       const safeFile = file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
       const filePath = `${safeName}/${dateStr}/${Date.now()}_${safeFile}`;
-      const { error: uploadError } = await supabase.storage.from('auth-documents').upload(filePath, file, { cacheControl:'3600', upsert:false });
-      if (uploadError) throw new Error(uploadError.message);
+      const { error: ue } = await supabase.storage.from('auth-documents').upload(filePath, file, { cacheControl:'3600', upsert:false });
+      if (ue) throw new Error(ue.message);
       await supabase.from('auth_documents').insert({
-        auth_record_id: authRecord?.id || null,
-        patient_name: patientName,
-        assigned_to: authRecord?.assigned_to || null,
-        file_name: file.name, file_path: filePath,
-        file_size: file.size, file_type: file.type,
+        auth_record_id: authRecord?.id||null, patient_name: patientName,
+        assigned_to: authRecord?.assigned_to||null, file_name: file.name,
+        file_path: filePath, file_size: file.size, file_type: file.type,
         document_type: docType, notes: docNotes.trim()||null,
         uploaded_by: uploaderName, uploaded_at: new Date().toISOString(),
       });
       setDocNotes(''); setUploadMsg('Uploaded!');
-      setTimeout(()=>setUploadMsg(''), 2000);
-      loadAll();
+      setTimeout(()=>setUploadMsg(''), 2000); loadAll();
     } catch(e) { setUploadMsg('Failed: '+e.message); }
     finally { setUploading(false); }
   };
@@ -239,27 +204,23 @@ function PatientProfile({ patientName, onClose }) {
     return '📎';
   };
 
-  // Derived
   const censusStatus = CENSUS_STATUS_META[censusRecord?.status] || null;
   const payerColor = PAYER_COLORS[authRecord?.payer] || B.gray;
-  const txRem = (parseInt(authRecord?.tx_approved)||0) - (parseInt(authRecord?.tx_used)||0);
-  const evalRem = (parseInt(authRecord?.eval_approved)||0) - (parseInt(authRecord?.eval_used)||0);
-  const raRem = (parseInt(authRecord?.ra_approved)||0) - (parseInt(authRecord?.ra_used)||0);
+  const txRem  = (parseInt(authRecord?.tx_approved)||0)-(parseInt(authRecord?.tx_used)||0);
+  const evalRem = (parseInt(authRecord?.eval_approved)||0)-(parseInt(authRecord?.eval_used)||0);
+  const raRem  = (parseInt(authRecord?.ra_approved)||0)-(parseInt(authRecord?.ra_used)||0);
   const daysLeft = daysUntil(authRecord?.auth_thru);
 
-  const docsByDate = useMemo(() => {
-    return documents.reduce((acc, doc) => {
-      const date = new Date(doc.uploaded_at).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-      if (!acc[date]) acc[date] = [];
-      acc[date].push(doc);
-      return acc;
-    }, {});
-  }, [documents]);
+  const docsByDate = useMemo(() => documents.reduce((acc, doc) => {
+    const date = new Date(doc.uploaded_at).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+    if (!acc[date]) acc[date] = [];
+    acc[date].push(doc);
+    return acc;
+  }, {}), [documents]);
 
   const TABS = [
     { key:'overview', label:'📋 Overview' },
     { key:'auth',     label:'🔒 Authorization' },
-    { key:'visits',   label:'📅 Visit History' },
     { key:'docs',     label:`📁 Documents${documents.length>0?` (${documents.length})`:''}`},
   ];
 
@@ -273,7 +234,6 @@ function PatientProfile({ patientName, onClose }) {
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:2000, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'20px', overflowY:'auto', fontFamily:"'DM Sans',sans-serif" }}>
       <div style={{ background:B.bg, borderRadius:20, width:'100%', maxWidth:800, marginTop:20, marginBottom:20, boxShadow:'0 24px 64px rgba(0,0,0,0.25)' }}>
 
-        {/* Header */}
         <div style={{ background:`linear-gradient(135deg,${B.darkRed},${B.red})`, borderRadius:'20px 20px 0 0', padding:'20px 24px', position:'relative', overflow:'hidden' }}>
           <div style={{ position:'absolute', inset:0, opacity:0.05, backgroundImage:'radial-gradient(circle,#fff 1px,transparent 1px)', backgroundSize:'18px 18px' }} />
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', position:'relative' }}>
@@ -281,40 +241,28 @@ function PatientProfile({ patientName, onClose }) {
               <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:4 }}>Patient Profile</div>
               <div style={{ fontSize:22, fontWeight:800, color:'#fff', marginBottom:6 }}>{patientName}</div>
               <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
-                {censusStatus && <StatusBadge status={censusRecord?.status} meta={censusStatus} />}
-                {authRecord?.payer && (
-                  <span style={{ background:'rgba(255,255,255,0.2)', color:'#fff', borderRadius:20, padding:'3px 10px', fontSize:12, fontWeight:600 }}>
-                    {authRecord.payer}
-                  </span>
-                )}
-                {authRecord?.region && (
-                  <span style={{ background:'rgba(255,255,255,0.15)', color:'rgba(255,255,255,0.9)', borderRadius:20, padding:'3px 10px', fontSize:12 }}>
-                    Region {authRecord.region}
-                  </span>
-                )}
+                {censusStatus && <StatusBadge meta={censusStatus} />}
+                {authRecord?.payer && <span style={{ background:'rgba(255,255,255,0.2)', color:'#fff', borderRadius:20, padding:'3px 10px', fontSize:12, fontWeight:600 }}>{authRecord.payer}</span>}
+                {authRecord?.region && <span style={{ background:'rgba(255,255,255,0.15)', color:'rgba(255,255,255,0.9)', borderRadius:20, padding:'3px 10px', fontSize:12 }}>Region {authRecord.region}</span>}
               </div>
             </div>
-            <button onClick={onClose} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:10, color:'#fff', padding:'8px 14px', fontSize:13, cursor:'pointer', fontFamily:'inherit', flexShrink:0 }}>✕ Close</button>
+            <button onClick={onClose} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:10, color:'#fff', padding:'8px 14px', fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>✕ Close</button>
           </div>
         </div>
 
-        {/* Tabs */}
-        <div style={{ display:'flex', gap:0, background:B.card, borderBottom:`1px solid ${B.border}` }}>
+        <div style={{ display:'flex', background:B.card, borderBottom:`1px solid ${B.border}` }}>
           {TABS.map(t => (
             <button key={t.key} onClick={()=>setActiveTab(t.key)}
-              style={{ flex:1, background:'none', border:'none', borderBottom:`2px solid ${activeTab===t.key?B.red:'transparent'}`, color:activeTab===t.key?B.red:B.gray, padding:'12px 8px', fontSize:12, fontWeight:activeTab===t.key?700:400, cursor:'pointer', fontFamily:'inherit', transition:'all 0.15s' }}>
+              style={{ flex:1, background:'none', border:'none', borderBottom:`2px solid ${activeTab===t.key?B.red:'transparent'}`, color:activeTab===t.key?B.red:B.gray, padding:'12px 8px', fontSize:12, fontWeight:activeTab===t.key?700:400, cursor:'pointer', fontFamily:'inherit' }}>
               {t.label}
             </button>
           ))}
         </div>
 
-        {/* Content */}
         <div style={{ padding:'20px 24px' }}>
 
-          {/* OVERVIEW TAB */}
           {activeTab==='overview' && (
             <>
-              {/* Quick stats row */}
               <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:16 }}>
                 {[
                   { label:'Census Status', value:censusStatus?.label||'Unknown', color:censusStatus?.color||B.gray },
@@ -329,22 +277,19 @@ function PatientProfile({ patientName, onClose }) {
                 ))}
               </div>
 
-              {/* Care Coordination */}
               <SectionCard title="Care Coordination" icon="🩺" accent={B.green}>
                 {editingCensus ? (
                   <div>
                     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
                       <div>
                         <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Census Status</label>
-                        <select value={censusForm.status||''} onChange={e=>setCensusForm(p=>({...p,status:e.target.value}))}
-                          style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}>
+                        <select value={censusForm.status||''} onChange={e=>setCensusForm(p=>({...p,status:e.target.value}))} style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}>
                           {Object.entries(CENSUS_STATUS_META).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
                         </select>
                       </div>
                       <div>
-                        <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Assigned Care Coordinator</label>
-                        <select value={censusForm.notes||''} onChange={e=>setCensusForm(p=>({...p,notes:e.target.value}))}
-                          style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}>
+                        <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Care Coordinator</label>
+                        <select value={censusForm.notes||''} onChange={e=>setCensusForm(p=>({...p,notes:e.target.value}))} style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}>
                           <option value="">Unassigned</option>
                           {CARE_COORDINATORS.map(n=><option key={n} value={n}>{n}</option>)}
                         </select>
@@ -360,16 +305,13 @@ function PatientProfile({ patientName, onClose }) {
                     <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16, marginBottom:12 }}>
                       <Field label="Census Status" value={censusStatus?.label||censusRecord?.status||'—'} color={censusStatus?.color} />
                       <Field label="Region" value={censusRecord?.region||authRecord?.region||'—'} />
-                      <Field label="Payer (Census)" value={censusRecord?.payer||'—'} />
+                      <Field label="Payer" value={censusRecord?.payer||'—'} />
                     </div>
-                    {isLeaderOrAbove && (
-                      <button onClick={()=>setEditingCensus(true)} style={{ background:'none', border:`1px solid ${B.border}`, borderRadius:8, color:B.gray, padding:'6px 12px', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>✏️ Edit Status</button>
-                    )}
+                    {isLeaderOrAbove && <button onClick={()=>setEditingCensus(true)} style={{ background:'none', border:`1px solid ${B.border}`, borderRadius:8, color:B.gray, padding:'6px 12px', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>✏️ Edit Status</button>}
                   </div>
                 )}
               </SectionCard>
 
-              {/* Authorization Summary */}
               <SectionCard title="Authorization Summary" icon="🔒" accent={B.blue}>
                 {authRecord ? (
                   <div>
@@ -379,9 +321,8 @@ function PatientProfile({ patientName, onClose }) {
                       <Field label="Auth Status" value={authRecord.auth_status} />
                       <Field label="Auth From" value={fmtDate(authRecord.auth_from)} />
                       <Field label="Auth Expires" value={fmtDate(authRecord.auth_thru)} color={daysLeft!=null?(daysLeft<=7?B.danger:daysLeft<=30?B.yellow:B.green):undefined} />
-                      <Field label="Assigned To" value={authRecord.assigned_to} />
+                      <Field label="Auth Coordinator" value={authRecord.assigned_to} />
                     </div>
-                    {/* Visit counters */}
                     <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:12 }}>
                       {[
                         { label:'TX Visits', used:authRecord.tx_used||0, approved:authRecord.tx_approved||0, rem:txRem },
@@ -392,7 +333,7 @@ function PatientProfile({ patientName, onClose }) {
                           <div style={{ fontSize:10, color:B.lightGray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:6 }}>{v.label}</div>
                           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:6 }}>
                             <span style={{ fontSize:18, fontWeight:800, color:v.rem<=3?B.danger:v.rem<=9?B.yellow:B.green, fontFamily:'monospace' }}>{v.rem}</span>
-                            <span style={{ fontSize:11, color:B.lightGray }}>{v.used} used / {v.approved} approved</span>
+                            <span style={{ fontSize:11, color:B.lightGray }}>{v.used} used / {v.approved} appr</span>
                           </div>
                           <div style={{ height:4, background:'rgba(0,0,0,0.08)', borderRadius:2 }}>
                             <div style={{ height:'100%', width:`${v.approved>0?Math.max(0,Math.min(100,(v.approved-v.rem)/v.approved*100)):0}%`, background:v.rem<=3?B.danger:v.rem<=9?B.yellow:B.green, borderRadius:2 }} />
@@ -402,21 +343,17 @@ function PatientProfile({ patientName, onClose }) {
                     </div>
                     {authRecord.last_call_notes && (
                       <div style={{ background:'#F0F9FF', border:'1px solid #BAE6FD', borderRadius:8, padding:'10px 12px', marginBottom:8 }}>
-                        <div style={{ fontSize:10, color:'#0284C7', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:3 }}>Last Call Notes</div>
+                        <div style={{ fontSize:10, color:'#0284C7', fontWeight:700, textTransform:'uppercase', marginBottom:3 }}>Last Call Notes</div>
                         <div style={{ fontSize:12, color:B.black }}>{authRecord.last_call_notes}</div>
-                        {authRecord.last_call_date && <div style={{ fontSize:10, color:B.lightGray, marginTop:3 }}>{fmtDate(authRecord.last_call_date)}</div>}
                       </div>
                     )}
                     {authRecord.next_follow_up && (
-                      <div style={{ background:'#F5F3FF', border:'1px solid #DDD6FE', borderRadius:8, padding:'10px 12px' }}>
-                        <div style={{ fontSize:10, color:B.purple, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:2 }}>📞 Next Follow-Up</div>
+                      <div style={{ background:'#F5F3FF', border:'1px solid #DDD6FE', borderRadius:8, padding:'10px 12px', marginBottom:8 }}>
+                        <div style={{ fontSize:10, color:B.purple, fontWeight:700, textTransform:'uppercase', marginBottom:2 }}>📞 Next Follow-Up</div>
                         <div style={{ fontSize:13, fontWeight:700, color:B.purple }}>{fmtDate(authRecord.next_follow_up)}</div>
                       </div>
                     )}
-                    {authRecord.payer && PAYER_PHONES[authRecord.payer] && (
-                      <div style={{ fontSize:11, color:B.lightGray, marginTop:8 }}>📞 Payer line: {PAYER_PHONES[authRecord.payer]}</div>
-                    )}
-                    <button onClick={()=>setActiveTab('auth')} style={{ marginTop:10, background:'none', border:`1px solid ${B.border}`, borderRadius:8, color:B.gray, padding:'6px 12px', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>✏️ Edit Authorization →</button>
+                    <button onClick={()=>setActiveTab('auth')} style={{ marginTop:6, background:'none', border:`1px solid ${B.border}`, borderRadius:8, color:B.gray, padding:'6px 12px', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>✏️ Edit Authorization →</button>
                   </div>
                 ) : (
                   <div style={{ textAlign:'center', padding:'16px', color:B.lightGray, fontSize:13 }}>
@@ -426,7 +363,6 @@ function PatientProfile({ patientName, onClose }) {
                 )}
               </SectionCard>
 
-              {/* Recent Documents */}
               {documents.length > 0 && (
                 <SectionCard title={`Documents (${documents.length})`} icon="📁">
                   {documents.slice(0,3).map(doc => (
@@ -434,22 +370,17 @@ function PatientProfile({ patientName, onClose }) {
                       <span style={{ fontSize:18 }}>{getIcon(doc.file_type, doc.file_name)}</span>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontSize:12, fontWeight:600, color:B.black, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{doc.file_name}</div>
-                        <div style={{ fontSize:10, color:B.lightGray }}>{doc.document_type} · {fmtDate(doc.uploaded_at.split('T')[0])} · {doc.uploaded_by}</div>
+                        <div style={{ fontSize:10, color:B.lightGray }}>{doc.document_type} · {doc.uploaded_by}</div>
                       </div>
                       <button onClick={()=>viewDoc(doc)} style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:6, color:B.blue, padding:'4px 10px', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>View</button>
                     </div>
                   ))}
-                  {documents.length > 3 && (
-                    <button onClick={()=>setActiveTab('docs')} style={{ marginTop:8, background:'none', border:'none', color:B.red, fontSize:12, cursor:'pointer', fontFamily:'inherit', fontWeight:600 }}>
-                      View all {documents.length} documents →
-                    </button>
-                  )}
+                  {documents.length > 3 && <button onClick={()=>setActiveTab('docs')} style={{ marginTop:8, background:'none', border:'none', color:B.red, fontSize:12, cursor:'pointer', fontFamily:'inherit', fontWeight:600 }}>View all {documents.length} →</button>}
                 </SectionCard>
               )}
             </>
           )}
 
-          {/* AUTH TAB */}
           {activeTab==='auth' && (
             <SectionCard title="Authorization Details" icon="🔒" accent={B.blue}>
               {editingAuth ? (
@@ -458,9 +389,7 @@ function PatientProfile({ patientName, onClose }) {
                     {[
                       {label:'Auth Number',key:'auth_number',type:'text'},
                       {label:'Auth Status',key:'auth_status',type:'select',opts:['active','pending','approved','denied','expired','renewal_submitted','discharged']},
-                      {label:'Payer',key:'payer',type:'select_payer'},
                       {label:'Region',key:'region',type:'text'},
-                      {label:'Assigned Auth Coordinator',key:'assigned_to',type:'select_auth'},
                       {label:'PCP',key:'pcp',type:'text'},
                       {label:'Auth From',key:'auth_from',type:'date'},
                       {label:'Auth Expiry',key:'auth_thru',type:'date'},
@@ -475,40 +404,32 @@ function PatientProfile({ patientName, onClose }) {
                     ].map(f=>(
                       <div key={f.key}>
                         <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>{f.label}</label>
-                        {f.type==='select'?
-                          <select value={authForm[f.key]||''} onChange={e=>setAuthForm(p=>({...p,[f.key]:e.target.value}))} style={{ width:'100%', padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}>{f.opts.map(o=><option key={o} value={o}>{o}</option>)}</select>
-                        :f.type==='select_payer'?
-                          <select value={authForm[f.key]||''} onChange={e=>setAuthForm(p=>({...p,[f.key]:e.target.value}))} style={{ width:'100%', padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}>
-                            <option value="">Select payer...</option>
-                            {Object.keys(PAYER_COLORS).map(p=><option key={p} value={p}>{p}</option>)}
-                          </select>
-                        :f.type==='select_auth'?
-                          <select value={authForm[f.key]||''} onChange={e=>setAuthForm(p=>({...p,[f.key]:e.target.value}))} style={{ width:'100%', padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}>
-                            <option value="">Unassigned</option>
-                            {AUTH_COORDINATORS.map(n=><option key={n} value={n}>{n}</option>)}
-                          </select>
-                        :
-                          <input type={f.type} value={authForm[f.key]||''} onChange={e=>setAuthForm(p=>({...p,[f.key]:f.type==='number'?parseInt(e.target.value)||0:e.target.value}))} style={{ width:'100%', padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', color:B.black, boxSizing:'border-box' }} />
+                        {f.type==='select'
+                          ?<select value={authForm[f.key]||''} onChange={e=>setAuthForm(p=>({...p,[f.key]:e.target.value}))} style={{ width:'100%', padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}>{f.opts.map(o=><option key={o} value={o}>{o}</option>)}</select>
+                          :<input type={f.type} value={authForm[f.key]||''} onChange={e=>setAuthForm(p=>({...p,[f.key]:f.type==='number'?parseInt(e.target.value)||0:e.target.value}))} style={{ width:'100%', padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', color:B.black, boxSizing:'border-box' }} />
                         }
                       </div>
                     ))}
                   </div>
                   <div style={{ marginBottom:12 }}>
+                    <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Auth Coordinator</label>
+                    <select value={authForm.assigned_to||''} onChange={e=>setAuthForm(p=>({...p,assigned_to:e.target.value}))} style={{ width:'100%', padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', background:'#fff', color:B.black, boxSizing:'border-box' }}>
+                      <option value="">Unassigned</option>
+                      {AUTH_COORDINATORS.map(n=><option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ marginBottom:12 }}>
                     <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Last Call Notes</label>
-                    <textarea value={authForm.last_call_notes||''} onChange={e=>setAuthForm(p=>({...p,last_call_notes:e.target.value}))} rows={3} placeholder="Who you spoke with, reference #, outcome..." style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', resize:'vertical', color:B.black, boxSizing:'border-box' }} />
+                    <textarea value={authForm.last_call_notes||''} onChange={e=>setAuthForm(p=>({...p,last_call_notes:e.target.value}))} rows={3} style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', resize:'vertical', color:B.black, boxSizing:'border-box' }} />
                   </div>
-                  <div style={{ marginBottom:12 }}>
-                    <label style={{ display:'block', fontSize:10, fontWeight:700, color:B.gray, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Auth Notes</label>
-                    <textarea value={authForm.notes||''} onChange={e=>setAuthForm(p=>({...p,notes:e.target.value}))} rows={2} style={{ width:'100%', padding:'8px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', resize:'vertical', color:B.black, boxSizing:'border-box' }} />
-                  </div>
-                  <div style={{ marginBottom:12 }}>
+                  <div style={{ marginBottom:14 }}>
                     <label style={{ display:'flex', gap:8, alignItems:'center', fontSize:12, color:B.gray, cursor:'pointer' }}>
                       <input type="checkbox" checked={!!authForm.vob_verified} onChange={e=>setAuthForm(p=>({...p,vob_verified:e.target.checked}))} /> VOB Verified
                     </label>
                   </div>
                   <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
                     <button onClick={()=>setEditingAuth(false)} style={{ background:'none', border:`1px solid ${B.border}`, borderRadius:8, color:B.gray, padding:'8px 16px', fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>Cancel</button>
-                    <button onClick={saveAuth} disabled={saving} style={{ background:`linear-gradient(135deg,${B.red},${B.darkRed})`, border:'none', borderRadius:8, color:'#fff', padding:'8px 20px', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>{saving?'Saving...':'Save Authorization'}</button>
+                    <button onClick={saveAuth} disabled={saving} style={{ background:`linear-gradient(135deg,${B.red},${B.darkRed})`, border:'none', borderRadius:8, color:'#fff', padding:'8px 20px', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>{saving?'Saving...':'Save'}</button>
                   </div>
                 </div>
               ) : (
@@ -525,29 +446,23 @@ function PatientProfile({ patientName, onClose }) {
                         <Field label="Auth Coordinator" value={authRecord.assigned_to} />
                         <Field label="PCP" value={authRecord.pcp} />
                         <Field label="VOB Verified" value={authRecord.vob_verified?'Yes':'No'} color={authRecord.vob_verified?B.green:B.lightGray} />
-                        <Field label="TX: Used / Approved" value={`${authRecord.tx_used||0} / ${authRecord.tx_approved||0}`} mono />
-                        <Field label="RA: Used / Approved" value={`${authRecord.ra_used||0} / ${authRecord.ra_approved||0}`} mono />
-                        <Field label="Eval: Used / Approved" value={`${authRecord.eval_used||0} / ${authRecord.eval_approved||0}`} mono />
+                        <Field label="TX Used/Approved" value={`${authRecord.tx_used||0} / ${authRecord.tx_approved||0}`} mono />
+                        <Field label="RA Used/Approved" value={`${authRecord.ra_used||0} / ${authRecord.ra_approved||0}`} mono />
+                        <Field label="Eval Used/Approved" value={`${authRecord.eval_used||0} / ${authRecord.eval_approved||0}`} mono />
                         <Field label="Last Call Date" value={fmtDate(authRecord.last_call_date)} />
                         <Field label="Next Follow-Up" value={fmtDate(authRecord.next_follow_up)} color={B.purple} />
                       </div>
                       {authRecord.last_call_notes && (
-                        <div style={{ background:'#F0F9FF', border:'1px solid #BAE6FD', borderRadius:8, padding:'10px 12px', marginBottom:8 }}>
+                        <div style={{ background:'#F0F9FF', border:'1px solid #BAE6FD', borderRadius:8, padding:'10px 12px', marginBottom:10 }}>
                           <div style={{ fontSize:10, color:'#0284C7', fontWeight:700, textTransform:'uppercase', marginBottom:3 }}>Last Call Notes</div>
                           <div style={{ fontSize:12, color:B.black }}>{authRecord.last_call_notes}</div>
-                        </div>
-                      )}
-                      {authRecord.notes && (
-                        <div style={{ background:B.bg, border:`1px solid ${B.border}`, borderRadius:8, padding:'10px 12px', marginBottom:10 }}>
-                          <div style={{ fontSize:10, color:B.lightGray, fontWeight:700, textTransform:'uppercase', marginBottom:3 }}>Notes</div>
-                          <div style={{ fontSize:12, color:B.black }}>{authRecord.notes}</div>
                         </div>
                       )}
                       <button onClick={()=>setEditingAuth(true)} style={{ background:`linear-gradient(135deg,${B.red},${B.darkRed})`, border:'none', borderRadius:8, color:'#fff', padding:'8px 18px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>✏️ Edit Authorization</button>
                     </div>
                   ) : (
                     <div style={{ textAlign:'center', padding:'20px' }}>
-                      <div style={{ color:B.lightGray, marginBottom:12, fontSize:13 }}>No authorization record found for this patient</div>
+                      <div style={{ color:B.lightGray, marginBottom:12, fontSize:13 }}>No authorization record found</div>
                       <button onClick={()=>setEditingAuth(true)} style={{ background:`linear-gradient(135deg,${B.red},${B.darkRed})`, border:'none', borderRadius:8, color:'#fff', padding:'8px 18px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>+ Create Auth Record</button>
                     </div>
                   )}
@@ -556,35 +471,8 @@ function PatientProfile({ patientName, onClose }) {
             </SectionCard>
           )}
 
-          {/* VISITS TAB */}
-          {activeTab==='visits' && (
-            <SectionCard title="Visit History" icon="📅">
-              {visitRecords.length === 0 ? (
-                <div style={{ textAlign:'center', padding:'24px', color:B.lightGray, fontSize:13 }}>No visit data available. Upload Pariox visit export to populate.</div>
-              ) : (
-                <div>
-                  <div style={{ fontSize:12, color:B.gray, marginBottom:12 }}>Showing clinician schedule data from Pariox. Patient-level filtering updates when patient-level Pariox exports are uploaded.</div>
-                  {visitRecords.slice(0,20).map((v,i) => (
-                    <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', borderBottom:`1px solid ${B.border}` }}>
-                      <div>
-                        <div style={{ fontSize:12, fontWeight:600, color:B.black }}>{v.coordinator||'—'}</div>
-                        <div style={{ fontSize:11, color:B.lightGray }}>Region {v.region||'—'} · {v.notes||''}</div>
-                      </div>
-                      <div style={{ textAlign:'right' }}>
-                        <div style={{ fontSize:12, color:B.gray }}>{v.visit_date?new Date(v.visit_date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}):' —'}</div>
-                        <span style={{ fontSize:10, color:v.status==='completed'?B.green:B.blue, background:v.status==='completed'?'#F0FDF4':'#EFF6FF', border:`1px solid ${v.status==='completed'?'#BBF7D0':'#BFDBFE'}`, borderRadius:10, padding:'1px 7px', fontWeight:700 }}>{v.status||'scheduled'}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </SectionCard>
-          )}
-
-          {/* DOCS TAB */}
           {activeTab==='docs' && (
             <SectionCard title="Patient Documents" icon="📁">
-              {/* Upload */}
               <div style={{ marginBottom:20 }}>
                 <div style={{ fontSize:13, fontWeight:700, color:B.black, marginBottom:10 }}>Upload New Document</div>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
@@ -599,8 +487,7 @@ function PatientProfile({ patientName, onClose }) {
                     <input value={docNotes} onChange={e=>setDocNotes(e.target.value)} placeholder="e.g. Signed by Dr. Smith" style={{ width:'100%', padding:'7px 10px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', color:B.black, boxSizing:'border-box' }} />
                   </div>
                 </div>
-                <div
-                  onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)}
+                <div onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)}
                   onDrop={e=>{e.preventDefault();setDragOver(false);uploadFile(e.dataTransfer.files[0]);}}
                   onClick={()=>!uploading&&fileRef.current.click()}
                   style={{ border:`2px dashed ${dragOver?B.red:'#D1D5DB'}`, borderRadius:12, padding:'20px', textAlign:'center', cursor:uploading?'default':'pointer', background:dragOver?'#FFF5F2':'#FAFAFA' }}>
@@ -611,8 +498,6 @@ function PatientProfile({ patientName, onClose }) {
                   {uploadMsg&&!uploading&&<div style={{ fontSize:12, color:B.green, marginTop:4, fontWeight:600 }}>{uploadMsg}</div>}
                 </div>
               </div>
-
-              {/* Doc list */}
               {documents.length === 0 ? (
                 <div style={{ textAlign:'center', padding:'24px', color:B.lightGray, background:B.bg, borderRadius:10, border:`1px dashed ${B.border}` }}>
                   <div style={{ fontSize:24, marginBottom:6 }}>📂</div>
@@ -651,9 +536,7 @@ function PatientProfile({ patientName, onClose }) {
   );
 }
 
-
-
-
+// ── Census constants ───────────────────────────────────────────
 const STATUS_META = {
   active:              { label:'Active',             color:B.green,  bg:'#F0FDF4', border:'#BBF7D0', icon:'✅', desc:'In treatment' },
   active_auth_pending: { label:'Active–Auth Pending', color:B.orange, bg:'#FFF7ED', border:'#FED7AA', icon:'⏳', desc:'Treating, auth at risk' },
@@ -673,7 +556,6 @@ const CFG = { authRiskVisitsPerWeek: 3, avgReimbursement: 90 };
 
 export default function PatientCensus() {
   const { censusData, hasCensus, loading } = useOpsData();
-
   const [selectedRegion, setSelectedRegion] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [search, setSearch] = useState('');
@@ -688,14 +570,11 @@ export default function PatientCensus() {
 
   const regionKeys = hasCensus ? Object.keys(censusData.byRegion||{}).sort() : [];
   const displayCounts = hasCensus && selectedRegion !== 'all' && censusData.byRegion?.[selectedRegion]
-    ? censusData.byRegion[selectedRegion]
-    : (hasCensus ? censusData.counts : null);
+    ? censusData.byRegion[selectedRegion] : (hasCensus ? censusData.counts : null);
   const displayTotal = hasCensus && selectedRegion !== 'all' && censusData.byRegion?.[selectedRegion]
-    ? censusData.byRegion[selectedRegion].total
-    : (censusData?.total || 0);
+    ? censusData.byRegion[selectedRegion].total : (censusData?.total || 0);
   const displayActive = hasCensus && selectedRegion !== 'all' && censusData.byRegion?.[selectedRegion]
-    ? censusData.byRegion[selectedRegion].activeCensus
-    : (censusData?.activeCensus || 0);
+    ? censusData.byRegion[selectedRegion].activeCensus : (censusData?.activeCensus || 0);
 
   const allPatients = hasCensus ? censusData.patients || [] : [];
   const filteredPatients = allPatients
@@ -705,172 +584,161 @@ export default function PatientCensus() {
 
   return (
     <>
-    <div style={{ fontFamily:"'DM Sans', sans-serif" }}>
-      {/* Header */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24 }}>
-        <div>
-          <h1 style={{ fontSize:22, fontWeight:800, color:B.black, margin:0, marginBottom:4 }}>👥 Patient Census</h1>
-          {hasCensus && (
-            <p style={{ fontSize:13, color:B.gray, margin:0 }}>
-              {censusData.total} total patients · <span style={{ color:B.green, fontWeight:700 }}>{censusData.activeCensus} active census</span> · Updated {censusData.lastUpdated}
-            </p>
-          )}
-          {hasCensus && (
-            <p style={{ fontSize:11, color:B.lightGray, margin:'4px 0 0' }}>
-              Live data — updates automatically when director uploads a new census
-            </p>
-          )}
+      <div style={{ fontFamily:"'DM Sans', sans-serif" }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24 }}>
+          <div>
+            <h1 style={{ fontSize:22, fontWeight:800, color:B.black, margin:0, marginBottom:4 }}>👥 Patient Census</h1>
+            {hasCensus && (
+              <p style={{ fontSize:13, color:B.gray, margin:0 }}>
+                {censusData.total} total patients · <span style={{ color:B.green, fontWeight:700 }}>{censusData.activeCensus} active census</span> · Updated {censusData.lastUpdated}
+              </p>
+            )}
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            {['summary','patients'].map(v => (
+              <button key={v} onClick={() => setView(v)} style={{
+                padding:'7px 14px', borderRadius:8, border:`1px solid ${view===v ? B.red : B.border}`,
+                background: view===v ? '#FFF5F2' : 'transparent',
+                color: view===v ? B.red : B.gray,
+                fontSize:12, fontWeight: view===v ? 700 : 400, cursor:'pointer', fontFamily:'inherit',
+              }}>{v === 'summary' ? '📊 Summary' : '📋 Patient List'}</button>
+            ))}
+          </div>
         </div>
-        <div style={{ display:'flex', gap:8 }}>
-          {['summary','patients'].map(v => (
-            <button key={v} onClick={() => setView(v)} style={{
-              padding:'7px 14px', borderRadius:8, border:`1px solid ${view===v ? B.red : B.border}`,
-              background: view===v ? '#FFF5F2' : 'transparent',
-              color: view===v ? B.red : B.gray,
-              fontSize:12, fontWeight: view===v ? 700 : 400, cursor:'pointer', fontFamily:'inherit',
-            }}>{v === 'summary' ? '📊 Summary' : '📋 Patient List'}</button>
-          ))}
-        </div>
+
+        {!hasCensus ? (
+          <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:16, padding:'48px', textAlign:'center' }}>
+            <div style={{ fontSize:36, marginBottom:12 }}>👥</div>
+            <div style={{ fontSize:16, fontWeight:700, color:B.black, marginBottom:8 }}>No census data loaded</div>
+            <div style={{ fontSize:13, color:B.gray }}>Upload census data via the Upload Data button</div>
+          </div>
+        ) : (
+          <>
+            <div style={{ display:'flex', gap:10, marginBottom:20, flexWrap:'wrap', alignItems:'center' }}>
+              <span style={{ fontSize:11, color:B.lightGray, marginRight:2 }}>Region:</span>
+              {['all', ...regionKeys].map(r => (
+                <button key={r} onClick={() => setSelectedRegion(r)} style={{
+                  padding:'5px 10px', borderRadius:6, border:`1px solid ${selectedRegion===r ? B.red : B.border}`,
+                  background: selectedRegion===r ? '#FFF5F2' : 'transparent',
+                  color: selectedRegion===r ? B.red : B.gray,
+                  fontSize:11, fontWeight: selectedRegion===r ? 700 : 400, cursor:'pointer', fontFamily:'inherit',
+                }}>{r === 'all' ? 'All' : r}</button>
+              ))}
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14, marginBottom:20 }}>
+              {[
+                { label:'Active Census', value:displayActive, sub:'Active + Active-Auth Pending', color:B.green, bg:'#F0FDF4', border:'#BBF7D0' },
+                { label:'Total in System', value:displayTotal, sub:`${selectedRegion==='all'?'All regions':'Region '+selectedRegion}`, color:B.red, bg:'#FFF5F2', border:'#FDDDD5' },
+                { label:'On Hold', value:(displayCounts?.on_hold||0)+(displayCounts?.on_hold_facility||0)+(displayCounts?.on_hold_pt||0)+(displayCounts?.on_hold_md||0), sub:'Revenue paused', color:'#6B7280', bg:'#F9FAFB', border:'#E5E7EB' },
+              ].map(m => (
+                <div key={m.label} style={{ background:m.bg, border:`1px solid ${m.border}`, borderRadius:14, padding:'20px 24px' }}>
+                  <div style={{ fontSize:11, color:m.color, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>{m.label}</div>
+                  <div style={{ fontSize:38, fontWeight:800, color:m.color, fontFamily:"'DM Mono', monospace", lineHeight:1 }}>{m.value ?? '—'}</div>
+                  <div style={{ fontSize:11, color:m.color, opacity:0.7, marginTop:6 }}>{m.sub}</div>
+                </div>
+              ))}
+            </div>
+
+            {view === 'summary' && (
+              <>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:20 }}>
+                  {Object.entries(STATUS_META).map(([key, meta]) => {
+                    const count = (displayCounts?.[key]) || 0;
+                    const pct = displayTotal > 0 ? Math.round(count/displayTotal*100) : 0;
+                    return (
+                      <div key={key} onClick={() => { setSelectedStatus(selectedStatus===key?'all':key); setView('patients'); }}
+                        style={{ background:meta.bg, border:`1px solid ${selectedStatus===key ? meta.color : meta.border}`,
+                          borderRadius:12, padding:'12px 14px', cursor:'pointer', position:'relative', overflow:'hidden', transition:'all 0.15s' }}>
+                        <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:meta.color }} />
+                        <div style={{ fontSize:10, color:meta.color, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>{meta.icon} {meta.label}</div>
+                        <div style={{ fontSize:26, fontWeight:800, color:meta.color, fontFamily:"'DM Mono', monospace", lineHeight:1 }}>{count}</div>
+                        <div style={{ fontSize:10, color:meta.color, opacity:0.7, marginTop:3 }}>{pct}% · {meta.desc}</div>
+                        <div style={{ marginTop:6, height:3, background:'rgba(0,0,0,0.08)', borderRadius:2 }}>
+                          <div style={{ height:'100%', width:`${pct}%`, background:meta.color, borderRadius:2 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
+                  {[
+                    { label:'🔒 Auth Revenue Risk', count:(displayCounts?.auth_pending||0)+(displayCounts?.active_auth_pending||0), color:B.yellow, bg:'#FFFBEB', border:'#FDE68A', desc:'patients blocked' },
+                    { label:'⏸️ On Hold Revenue', count:(displayCounts?.on_hold||0)+(displayCounts?.on_hold_facility||0)+(displayCounts?.on_hold_pt||0)+(displayCounts?.on_hold_md||0), color:'#6B7280', bg:'#F9FAFB', border:'#E5E7EB', desc:'patients paused' },
+                    { label:'📅 SOC Ready to Start', count:displayCounts?.soc_pending||0, color:B.blue, bg:'#EFF6FF', border:'#BFDBFE', desc:'awaiting scheduling' },
+                  ].map(r => {
+                    const weeklyRev = r.count * CFG.authRiskVisitsPerWeek * CFG.avgReimbursement;
+                    return (
+                      <div key={r.label} style={{ background:r.bg, border:`1px solid ${r.border}`, borderRadius:12, padding:'16px 18px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                        <div>
+                          <div style={{ fontSize:12, fontWeight:700, color:r.color, marginBottom:4 }}>{r.label}</div>
+                          <div style={{ fontSize:11, color:r.color, opacity:0.8 }}>{r.count} {r.desc}</div>
+                          <div style={{ fontSize:11, color:r.color, fontWeight:700, marginTop:4 }}>~${(weeklyRev/1000).toFixed(1)}K/wk</div>
+                        </div>
+                        <div style={{ fontSize:32, fontWeight:800, color:r.color, fontFamily:"'DM Mono', monospace" }}>{r.count}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {view === 'patients' && (
+              <>
+                <div style={{ display:'flex', gap:10, marginBottom:14, flexWrap:'wrap', alignItems:'center' }}>
+                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search patient name..."
+                    style={{ padding:'8px 14px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', color:B.black, width:240 }} />
+                  <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)}
+                    style={{ padding:'8px 12px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13, fontFamily:'inherit', color:B.black, outline:'none', background:'#fff' }}>
+                    <option value="all">All Statuses</option>
+                    {Object.entries(STATUS_META).map(([k,v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
+                  </select>
+                  <span style={{ fontSize:12, color:B.lightGray, marginLeft:'auto' }}>{filteredPatients.length} patients</span>
+                </div>
+                <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:14, overflow:'hidden', boxShadow:'0 1px 4px rgba(139,26,16,0.06)' }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'220px 70px 150px 100px 1fr', padding:'9px 18px', background:'#FBF7F6', borderBottom:`1px solid ${B.border}` }}>
+                    {['Patient','Region','Status','Payer','Days in Status'].map(h => (
+                      <div key={h} style={{ fontSize:10, fontWeight:700, color:B.lightGray, textTransform:'uppercase', letterSpacing:'0.08em' }}>{h}</div>
+                    ))}
+                  </div>
+                  {filteredPatients.slice(0,100).map((p, i) => {
+                    const meta = STATUS_META[p.status] || STATUS_META.active;
+                    return (
+                      <div key={i} onClick={()=>setSelectedPatient(p.name)}
+                        style={{ display:'grid', gridTemplateColumns:'220px 70px 150px 100px 1fr', padding:'9px 18px', borderBottom:'1px solid #FAF4F2', alignItems:'center', cursor:'pointer' }}
+                        onMouseEnter={e=>e.currentTarget.style.background='#FFF5F2'}
+                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                        <div style={{ fontSize:12, fontWeight:600, color:B.red, textDecoration:'underline dotted' }}>{p.name}</div>
+                        <div style={{ fontSize:12, color:B.gray }}>{p.region}</div>
+                        <div>
+                          <span style={{ background:meta.bg, color:meta.color, border:`1px solid ${meta.border}`, borderRadius:20, padding:'2px 8px', fontSize:10, fontWeight:700 }}>
+                            {meta.icon} {meta.label}
+                          </span>
+                        </div>
+                        <div style={{ fontSize:11, color:B.gray }}>{p.payer}</div>
+                        <div style={{ fontSize:11, color:(p.daysInStatus||0)>30?B.danger:(p.daysInStatus||0)>14?B.yellow:B.lightGray }}>
+                          {p.daysInStatus != null ? `${p.daysInStatus}d` : '—'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {filteredPatients.length > 100 && (
+                    <div style={{ padding:'12px 18px', fontSize:12, color:B.lightGray, textAlign:'center', borderTop:`1px solid ${B.border}` }}>
+                      Showing 100 of {filteredPatients.length} — use filters to narrow
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </>
+        )}
       </div>
 
-      {!hasCensus ? (
-        <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:16, padding:'48px', textAlign:'center' }}>
-          <div style={{ fontSize:36, marginBottom:12 }}>👥</div>
-          <div style={{ fontSize:16, fontWeight:700, color:B.black, marginBottom:8 }}>No census data loaded</div>
-          <div style={{ fontSize:13, color:B.gray }}>Your director will upload the Pariox Patient Census — it will appear here automatically</div>
-        </div>
-      ) : (
-        <>
-          {/* Region filters */}
-          <div style={{ display:'flex', gap:10, marginBottom:20, flexWrap:'wrap', alignItems:'center' }}>
-            <span style={{ fontSize:11, color:B.lightGray, marginRight:2 }}>Region:</span>
-            {['all', ...regionKeys].map(r => (
-              <button key={r} onClick={() => setSelectedRegion(r)} style={{
-                padding:'5px 10px', borderRadius:6, border:`1px solid ${selectedRegion===r ? B.red : B.border}`,
-                background: selectedRegion===r ? '#FFF5F2' : 'transparent',
-                color: selectedRegion===r ? B.red : B.gray,
-                fontSize:11, fontWeight: selectedRegion===r ? 700 : 400, cursor:'pointer', fontFamily:'inherit',
-              }}>{r === 'all' ? 'All' : r}</button>
-            ))}
-          </div>
-
-          {/* Hero stats */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14, marginBottom:20 }}>
-            {[
-              { label:'Active Census', value:displayActive, sub:'Active + Active-Auth Pending', color:B.green, bg:'#F0FDF4', border:'#BBF7D0' },
-              { label:'Total in System', value:displayTotal, sub:`${selectedRegion==='all'?'All regions':'Region '+selectedRegion}`, color:B.red, bg:'#FFF5F2', border:'#FDDDD5' },
-              { label:'On Hold', value:(displayCounts?.on_hold||0)+(displayCounts?.on_hold_facility||0)+(displayCounts?.on_hold_pt||0)+(displayCounts?.on_hold_md||0), sub:'Revenue paused', color:'#6B7280', bg:'#F9FAFB', border:'#E5E7EB' },
-            ].map(m => (
-              <div key={m.label} style={{ background:m.bg, border:`1px solid ${m.border}`, borderRadius:14, padding:'20px 24px' }}>
-                <div style={{ fontSize:11, color:m.color, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>{m.label}</div>
-                <div style={{ fontSize:38, fontWeight:800, color:m.color, fontFamily:"'DM Mono', monospace", lineHeight:1 }}>{m.value ?? '—'}</div>
-                <div style={{ fontSize:11, color:m.color, opacity:0.7, marginTop:6 }}>{m.sub}</div>
-              </div>
-            ))}
-          </div>
-
-          {view === 'summary' && (
-            <>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:20 }}>
-                {Object.entries(STATUS_META).map(([key, meta]) => {
-                  const count = (displayCounts?.[key]) || 0;
-                  const pct = displayTotal > 0 ? Math.round(count/displayTotal*100) : 0;
-                  return (
-                    <div key={key} onClick={() => { setSelectedStatus(selectedStatus===key?'all':key); setView('patients'); }}
-                      style={{ background:meta.bg, border:`1px solid ${selectedStatus===key ? meta.color : meta.border}`,
-                        borderRadius:12, padding:'12px 14px', cursor:'pointer', position:'relative', overflow:'hidden',
-                        transition:'all 0.15s', boxShadow: selectedStatus===key ? `0 0 0 2px ${meta.color}40` : 'none' }}>
-                      <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:meta.color }} />
-                      <div style={{ fontSize:10, color:meta.color, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:4 }}>{meta.icon} {meta.label}</div>
-                      <div style={{ fontSize:26, fontWeight:800, color:meta.color, fontFamily:"'DM Mono', monospace", lineHeight:1 }}>{count}</div>
-                      <div style={{ fontSize:10, color:meta.color, opacity:0.7, marginTop:3 }}>{pct}% · {meta.desc}</div>
-                      <div style={{ marginTop:6, height:3, background:'rgba(0,0,0,0.08)', borderRadius:2 }}>
-                        <div style={{ height:'100%', width:`${pct}%`, background:meta.color, borderRadius:2 }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
-                {[
-                  { label:'🔒 Auth Revenue Risk', count:(displayCounts?.auth_pending||0)+(displayCounts?.active_auth_pending||0), color:B.yellow, bg:'#FFFBEB', border:'#FDE68A', desc:'patients blocked' },
-                  { label:'⏸️ On Hold Paused Revenue', count:(displayCounts?.on_hold||0)+(displayCounts?.on_hold_facility||0)+(displayCounts?.on_hold_pt||0)+(displayCounts?.on_hold_md||0), color:'#6B7280', bg:'#F9FAFB', border:'#E5E7EB', desc:'patients paused' },
-                  { label:'📅 SOC Ready to Start', count:displayCounts?.soc_pending||0, color:B.blue, bg:'#EFF6FF', border:'#BFDBFE', desc:'awaiting scheduling' },
-                ].map(r => {
-                  const weeklyRev = r.count * CFG.authRiskVisitsPerWeek * CFG.avgReimbursement;
-                  return (
-                    <div key={r.label} style={{ background:r.bg, border:`1px solid ${r.border}`, borderRadius:12, padding:'16px 18px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <div>
-                        <div style={{ fontSize:12, fontWeight:700, color:r.color, marginBottom:4 }}>{r.label}</div>
-                        <div style={{ fontSize:11, color:r.color, opacity:0.8 }}>{r.count} {r.desc}</div>
-                        <div style={{ fontSize:11, color:r.color, fontWeight:700, marginTop:4 }}>~${(weeklyRev/1000).toFixed(1)}K/wk</div>
-                      </div>
-                      <div style={{ fontSize:32, fontWeight:800, color:r.color, fontFamily:"'DM Mono', monospace" }}>{r.count}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-
-          {view === 'patients' && (
-            <>
-              <div style={{ display:'flex', gap:10, marginBottom:14, flexWrap:'wrap', alignItems:'center' }}>
-                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search patient name..."
-                  style={{ padding:'8px 14px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13,
-                    fontFamily:'inherit', outline:'none', color:B.black, width:240 }} />
-                <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)}
-                  style={{ padding:'8px 12px', border:`1.5px solid ${B.border}`, borderRadius:8, fontSize:13,
-                    fontFamily:'inherit', color:B.black, outline:'none', background:'#fff' }}>
-                  <option value="all">All Statuses</option>
-                  {Object.entries(STATUS_META).map(([k,v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
-                </select>
-                <span style={{ fontSize:12, color:B.lightGray, marginLeft:'auto' }}>{filteredPatients.length} patients</span>
-              </div>
-
-              <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:14, overflow:'hidden', boxShadow:'0 1px 4px rgba(139,26,16,0.06)' }}>
-                <div style={{ display:'grid', gridTemplateColumns:'220px 70px 150px 100px 1fr', padding:'9px 18px', background:'#FBF7F6', borderBottom:`1px solid ${B.border}` }}>
-                  {['Patient','Region','Status','Payer','Days in Status'].map(h => (
-                    <div key={h} style={{ fontSize:10, fontWeight:700, color:B.lightGray, textTransform:'uppercase', letterSpacing:'0.08em' }}>{h}</div>
-                  ))}
-                </div>
-                {filteredPatients.slice(0,100).map((p, i) => {
-                  const meta = STATUS_META[p.status] || STATUS_META.active;
-                  return (
-                    <div key={i} onClick={()=>setSelectedPatient(p.name)} style={{ display:'grid', gridTemplateColumns:'220px 70px 150px 100px 1fr', padding:'9px 18px', borderBottom:`1px solid #FAF4F2`, alignItems:'center', cursor:'pointer' }} onMouseEnter={e=>e.currentTarget.style.background='#FFF5F2'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                      <div style={{ fontSize:12, fontWeight:600, color:'#D94F2B', textDecoration:'underline dotted' }}>{p.name}</div>
-                      <div style={{ fontSize:12, color:B.gray }}>{p.region}</div>
-                      <div>
-                        <span style={{ background:meta.bg, color:meta.color, border:`1px solid ${meta.border}`, borderRadius:20, padding:'2px 8px', fontSize:10, fontWeight:700 }}>
-                          {meta.icon} {meta.label}
-                        </span>
-                      </div>
-                      <div style={{ fontSize:11, color:B.gray }}>{p.payer}</div>
-                      <div style={{ fontSize:11, color: (p.daysInStatus||0) > 30 ? B.danger : (p.daysInStatus||0) > 14 ? B.yellow : B.lightGray }}>
-                        {p.daysInStatus != null ? `${p.daysInStatus}d` : '—'}
-                      </div>
-                    </div>
-                  );
-                })}
-                {filteredPatients.length > 100 && (
-                  <div style={{ padding:'12px 18px', fontSize:12, color:B.lightGray, textAlign:'center', borderTop:`1px solid ${B.border}` }}>
-                    Showing 100 of {filteredPatients.length} — use filters to narrow results
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </>
-      )}
-    </div>
       {selectedPatient && (
-        <Suspense fallback={<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:14}}>Loading patient profile...</div>}>
-          <PatientProfile
-            patientName={selectedPatient}
-            onClose={()=>setSelectedPatient(null)}
-          />
-        </Suspense>
+        <PatientProfile
+          patientName={selectedPatient}
+          onClose={()=>setSelectedPatient(null)}
+        />
       )}
     </>
   );
