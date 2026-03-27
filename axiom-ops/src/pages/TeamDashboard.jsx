@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
-
+ 
 // ── Design tokens ──────────────────────────────────────────────
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10', orange:'#E8763A',
@@ -12,7 +12,7 @@ const B = {
 };
 const AUTH_COLOR = '#0369A1';
 const CC_COLOR   = '#059669';
-
+ 
 const PAYER_COLORS = {
   'Humana':'#0066CC','CarePlus':'#009B77','Medicare/Devoted':'#1565C0',
   'FL Health Care Plans':'#2E7D32','Aetna':'#7B1FA2',
@@ -25,7 +25,7 @@ const PAYER_PHONES = {
   'Medicare/Devoted':'1-800-338-6833','FL Health Care Plans':'1-800-955-8771',
   'Aetna':'1-800-624-0756','Cigna':'1-800-244-6224','HealthFirst':'1-800-935-5465',
 };
-
+ 
 // ── Helpers ────────────────────────────────────────────────────
 function daysUntil(d) {
   if (!d) return null;
@@ -35,7 +35,7 @@ function fmtDate(d) {
   if (!d) return '—';
   return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'});
 }
-
+ 
 const PRIORITY_ORDER = { overdue:0, expiring_critical:1, visits_low:2, followup_due:3, expiring_soon:4, no_auth:5, pending:6, expired:7, ok:8 };
 const PRIORITY_META = {
   no_auth:          { label:'No Auth',        color:B.danger,  bg:'#FEF2F2', border:'#FECACA', icon:'🚨' },
@@ -48,7 +48,7 @@ const PRIORITY_META = {
   discharged:       { label:'Discharged',     color:'#6B7280', bg:'#F3F4F6', border:'#D1D5DB', icon:'📤' },
   ok:               { label:'Active',         color:B.green,   bg:'#F0FDF4', border:'#BBF7D0', icon:'✅' },
 };
-
+ 
 function getPriority(r) {
   if (r.auth_status === 'discharged') return 'discharged';
   if (!r.auth_number) return 'no_auth';
@@ -64,7 +64,7 @@ function getPriority(r) {
   if ((r.auth_status||'') === 'pending')    return 'pending';
   return 'ok';
 }
-
+ 
 // ── Shared KPI card ────────────────────────────────────────────
 function KPICard({ label, value, icon, color, sub, alert }) {
   return (
@@ -79,14 +79,14 @@ function KPICard({ label, value, icon, color, sub, alert }) {
     </div>
   );
 }
-
+ 
 // ── Inline edit modal ──────────────────────────────────────────
 function EditAuthModal({ record, onSave, onClose }) {
   const [form, setForm] = useState({...record});
   const [saving, setSaving] = useState(false);
   const setF = (k,v) => setForm(p=>({...p,[k]:v}));
   const txRem = (parseInt(form.tx_approved)||0)-(parseInt(form.tx_used)||0);
-
+ 
   const save = async () => {
     setSaving(true);
     await supabase.from('auth_records').update({
@@ -102,7 +102,7 @@ function EditAuthModal({ record, onSave, onClose }) {
     setSaving(false);
     onSave();
   };
-
+ 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
       <div style={{ background:B.card, borderRadius:20, padding:'28px', width:'100%', maxWidth:640, maxHeight:'90vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
@@ -157,7 +157,7 @@ function EditAuthModal({ record, onSave, onClose }) {
     </div>
   );
 }
-
+ 
 // ══════════════════════════════════════════════════════════════
 // AUTH TEAM DASHBOARD — reads live from Supabase auth_records
 // ══════════════════════════════════════════════════════════════
@@ -171,19 +171,19 @@ export function AuthDashboard() {
   const [filterPayer, setFilterPayer]       = useState('all');
   const [showExpired, setShowExpired]       = useState(false);
   const [expandedTask, setExpandedTask]     = useState(null);
-
+ 
   const userName  = profile?.full_name || profile?.name || '';
   const firstName = userName.split(' ')[0] || 'Coordinator';
   const hour      = new Date().getHours();
   const greeting  = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const today     = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-
+ 
   const loadRecords = async () => {
     const { data } = await supabase.from('auth_records').select('*').order('patient_name');
     setAllRecords(data || []);
     setLoading(false);
   };
-
+ 
   useEffect(() => {
     loadRecords();
     const sub = supabase.channel('auth-dash-rt')
@@ -191,7 +191,7 @@ export function AuthDashboard() {
       .subscribe();
     return () => sub.unsubscribe();
   }, []);
-
+ 
   // My records — scoped to logged-in user
   const myRecords = useMemo(() => {
     if (!userName) return allRecords; // fallback: show all if name not matched
@@ -200,9 +200,9 @@ export function AuthDashboard() {
       .map(r => ({ ...r, priority:getPriority(r), txRemaining:(r.tx_approved||0)-(r.tx_used||0), daysLeft:daysUntil(r.auth_thru) }))
       .sort((a,b) => (PRIORITY_ORDER[a.priority]||9)-(PRIORITY_ORDER[b.priority]||9));
   }, [allRecords, userName]);
-
+ 
   const active = myRecords.filter(r => r.priority !== 'expired' && r.priority !== 'discharged');
-
+ 
   // Task buckets
   const todayStr   = new Date().toDateString();
   const overdue    = myRecords.filter(r => r.next_follow_up && new Date(r.next_follow_up+'T12:00:00') < new Date(new Date().setHours(0,0,0,0)));
@@ -210,7 +210,7 @@ export function AuthDashboard() {
   const expiring7  = myRecords.filter(r => r.daysLeft!==null && r.daysLeft>=0 && r.daysLeft<=7);
   const visitsLow  = myRecords.filter(r => r.auth_number && r.txRemaining>=0 && r.txRemaining<=3);
   const noAuth     = active.filter(r => !r.auth_number);
-
+ 
   const taskItems = [
     { key:'overdue', icon:'🔴', label:'Overdue Follow-Up Calls',         count:overdue.length,   color:B.danger,  bg:'#FEF2F2', border:'#FECACA', patients:overdue,   action:'Past due — call now' },
     { key:'today',   icon:'📞', label:'Follow-Up Calls Due Today',        count:callToday.length, color:B.purple,  bg:'#F5F3FF', border:'#DDD6FE', patients:callToday, action:'Complete before end of day' },
@@ -218,9 +218,9 @@ export function AuthDashboard() {
     { key:'vis',     icon:'🔢', label:'Patients with ≤3 Visits Left',     count:visitsLow.length, color:B.orange,  bg:'#FFF7ED', border:'#FED7AA', patients:visitsLow, action:'Request new auth now' },
     { key:'noauth',  icon:'🚨', label:'Active Patients — No Auth on File', count:noAuth.length,    color:B.danger,  bg:'#FEF2F2', border:'#FECACA', patients:noAuth,    action:'Verify with payer' },
   ].filter(t => t.count > 0);
-
+ 
   const payers = [...new Set(myRecords.map(r=>r.payer).filter(p=>p&&p.length>2))].sort();
-
+ 
   const visible = useMemo(() => {
     let list = myRecords;
     if (!showExpired) list = list.filter(r => r.priority !== 'expired' && r.priority !== 'discharged');
@@ -229,12 +229,12 @@ export function AuthDashboard() {
     if (search) list = list.filter(r => (r.patient_name||'').toLowerCase().includes(search.toLowerCase())||(r.auth_number||'').includes(search));
     return list;
   }, [myRecords, showExpired, filterPriority, filterPayer, search]);
-
+ 
   if (loading) return <div style={{ padding:40, textAlign:'center', color:B.lightGray, fontFamily:"'DM Sans',sans-serif" }}>Loading your dashboard...</div>;
-
+ 
   return (
     <div style={{ fontFamily:"'DM Sans',sans-serif", color:B.black }}>
-
+ 
       {/* Header banner */}
       <div style={{ background:`linear-gradient(135deg,${B.darkRed},${B.red},${B.orange})`, borderRadius:16, padding:'20px 28px', marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:'0 4px 16px rgba(139,26,16,0.2)', position:'relative', overflow:'hidden' }}>
         <div style={{ position:'absolute', inset:0, opacity:0.05, backgroundImage:'radial-gradient(circle,#fff 1px,transparent 1px)', backgroundSize:'20px 20px' }} />
@@ -256,7 +256,7 @@ export function AuthDashboard() {
           ))}
         </div>
       </div>
-
+ 
       {/* Daily task list */}
       {taskItems.length > 0 ? (
         <div style={{ background:B.card, border:'1.5px solid #FED7AA', borderRadius:16, padding:'18px 22px', marginBottom:20, boxShadow:'0 2px 8px rgba(234,88,12,0.07)' }}>
@@ -314,7 +314,7 @@ export function AuthDashboard() {
           <div style={{ fontSize:13, fontWeight:700, color:B.green }}>✅ All clear — no urgent tasks today!</div>
         </div>
       )}
-
+ 
       {/* Patient queue */}
       <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:16, overflow:'hidden', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
         <div style={{ padding:'14px 20px', borderBottom:`1px solid ${B.border}`, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8 }}>
@@ -361,213 +361,14 @@ export function AuthDashboard() {
         {visible.length===0&&<div style={{ padding:28, textAlign:'center', color:B.lightGray, fontSize:13 }}>{myRecords.length===0?`No patients assigned to ${firstName} yet`:'No patients match these filters'}</div>}
         {visible.length>150&&<div style={{ padding:'10px', textAlign:'center', fontSize:11, color:B.lightGray, borderTop:`1px solid ${B.border}` }}>Showing 150 of {visible.length} — use filters to narrow</div>}
       </div>
-
+ 
       {editingRecord&&<EditAuthModal record={editingRecord} onSave={()=>{loadRecords();setEditingRecord(null);}} onClose={()=>setEditingRecord(null)} />}
     </div>
   );
 }
-
+ 
 // ══════════════════════════════════════════════════════════════
 // CARE COORD DASHBOARD — reads from census + pariox (unchanged)
 // ══════════════════════════════════════════════════════════════
-export function CareCoordDashboard() {
-  const { profile } = useAuth();
-
-  const censusData = useMemo(() => {
-    try { const s = localStorage.getItem('axiom_census'); return s ? JSON.parse(s) : null; } catch { return null; }
-  }, []);
-  const csvData = useMemo(() => {
-    try { const s = localStorage.getItem('axiom_pariox_data'); return s ? JSON.parse(s) : null; } catch { return null; }
-  }, []);
-
-  const hasCensus = !!(censusData?.counts);
-  const hasPariox = !!(csvData?.scheduledVisits > 0);
-
-  const [activeSection, setActiveSection] = useState('patients');
-
-  const counts          = censusData?.counts || {};
-  const totalActive     = censusData?.activeCensus || 0;
-  const onHold          = (counts.on_hold||0)+(counts.on_hold_facility||0)+(counts.on_hold_pt||0)+(counts.on_hold_md||0);
-  const evalPending     = counts.eval_pending || 0;
-  const authRisk        = (counts.auth_pending||0)+(counts.active_auth_pending||0);
-  const scheduledVisits = csvData?.scheduledVisits || 0;
-  const completedVisits = csvData?.completedVisits || 0;
-  const missedVisits    = csvData?.missedVisits || 0;
-  const highAlerts      = authRisk + (missedVisits > 0 ? 1 : 0);
-
-  const allPatients = useMemo(() => {
-    if (!hasCensus || !censusData?.patients) return [];
-    return censusData.patients;
-  }, [censusData, hasCensus]);
-
-  const onHoldPatients = useMemo(() => allPatients.filter(p => ['on_hold','on_hold_facility','on_hold_pt','on_hold_md'].includes(p.status)), [allPatients]);
-  const alertPatients  = useMemo(() => allPatients.filter(p => ['auth_pending','active_auth_pending'].includes(p.status)), [allPatients]);
-  const byCoordinator  = useMemo(() => {
-    const groups = {};
-    allPatients.forEach(p => {
-      const coord = p.coordinator || p.assignedCoordinator || 'Unassigned';
-      if (!groups[coord]) groups[coord] = [];
-      groups[coord].push(p);
-    });
-    return groups;
-  }, [allPatients]);
-
-  const firstName = (profile?.full_name || profile?.name || 'Team').split(' ')[0];
-  const hour      = new Date().getHours();
-  const greeting  = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const today     = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-
-  const STATUS_META = {
-    active:{label:'Active',color:B.green,bg:'#F0FDF4'},
-    active_auth_pending:{label:'Auth Pending',color:B.yellow,bg:'#FFFBEB'},
-    auth_pending:{label:'Auth Pending',color:B.yellow,bg:'#FFFBEB'},
-    on_hold:{label:'On Hold',color:B.gray,bg:'#F9FAFB'},
-    on_hold_facility:{label:'On Hold – Facility',color:B.gray,bg:'#F9FAFB'},
-    on_hold_pt:{label:'On Hold – PT',color:B.gray,bg:'#F9FAFB'},
-    on_hold_md:{label:'On Hold – MD',color:B.gray,bg:'#F9FAFB'},
-    eval_pending:{label:'Eval Pending',color:B.blue,bg:'#EFF6FF'},
-    soc_pending:{label:'SOC Pending',color:B.purple,bg:'#F5F3FF'},
-  };
-
-  return (
-    <div style={{ fontFamily:"'DM Sans',sans-serif", color:B.black }}>
-      {/* Header */}
-      <div style={{ background:`linear-gradient(135deg,#065F46,${CC_COLOR},#34D399)`, borderRadius:16, padding:'20px 28px', marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:'0 4px 16px rgba(5,150,105,0.2)', position:'relative', overflow:'hidden' }}>
-        <div style={{ position:'absolute', inset:0, opacity:0.05, backgroundImage:'radial-gradient(circle,#fff 1px,transparent 1px)', backgroundSize:'20px 20px' }} />
-        <div style={{ position:'relative' }}>
-          <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)', letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:4 }}>Care Coordination Team</div>
-          <div style={{ fontSize:22, fontWeight:800, color:'#fff', marginBottom:2 }}>{greeting}, {firstName} 👋</div>
-          <div style={{ fontSize:13, color:'rgba(255,255,255,0.7)' }}>{today}</div>
-        </div>
-        <div style={{ display:'flex', gap:24, position:'relative' }}>
-          {[
-            {label:'Active Census', value:totalActive, color:'#fff'},
-            {label:'Visits Sched.', value:scheduledVisits, color:'#fff'},
-            {label:'On Hold',       value:onHold, color:onHold>0?'#FDE68A':'#BBF7D0'},
-          ].map((s,i)=>(
-            <div key={s.label} style={{ textAlign:'center', paddingLeft:i>0?20:0, borderLeft:i>0?'1px solid rgba(255,255,255,0.25)':'none' }}>
-              <div style={{ fontSize:30, fontWeight:800, color:s.color, fontFamily:"'DM Mono',monospace", lineHeight:1 }}>{s.value}</div>
-              <div style={{ fontSize:10, color:'rgba(255,255,255,0.65)', textTransform:'uppercase', letterSpacing:'0.08em', marginTop:3 }}>{s.label}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* KPIs */}
-      <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom:20 }}>
-        <KPICard label="Total Active Patients" value={totalActive}     icon="👥" color={CC_COLOR} />
-        <KPICard label="Visits This Week"      value={scheduledVisits} icon="📅" color={B.blue} sub={hasPariox?`${completedVisits} completed`:'Upload Pariox for detail'} />
-        <KPICard label="Missed / Incomplete"   value={missedVisits}    icon="⚠️" color={B.danger} alert={missedVisits>0} />
-        <KPICard label="Patients On Hold"      value={onHold}          icon="⏸️" color={B.gray} alert={onHold>0} />
-        <KPICard label="High Alert Patients"   value={highAlerts}      icon="🚨" color={B.danger} alert={highAlerts>0} />
-        <KPICard label="Eval Pending"          value={evalPending}     icon="🗂️" color={B.purple} />
-      </div>
-
-      {!hasCensus&&<div style={{ background:'#FFFBEB', border:'1px solid #FDE68A', borderRadius:12, padding:'14px 18px', marginBottom:20, fontSize:13, color:'#92400E' }}>📤 No patient data loaded yet. Upload census in <strong>Data Uploads</strong> to populate this dashboard.</div>}
-
-      {/* Section tabs */}
-      <div style={{ display:'flex', gap:4, borderBottom:`1px solid ${B.border}`, marginBottom:20 }}>
-        {[
-          {key:'patients',label:'👥 By Coordinator',count:Object.keys(byCoordinator).length},
-          {key:'onhold',  label:'⏸️ On Hold',        count:onHoldPatients.length},
-          {key:'alerts',  label:'🚨 High Alert',      count:alertPatients.length},
-          {key:'activity',label:'📋 Visit Activity',  count:scheduledVisits},
-        ].map(t=>(
-          <button key={t.key} onClick={()=>setActiveSection(t.key)}
-            style={{ background:'none', border:'none', cursor:'pointer', fontFamily:'inherit', padding:'10px 16px', fontSize:13, fontWeight:activeSection===t.key?700:500, color:activeSection===t.key?CC_COLOR:B.gray, borderBottom:activeSection===t.key?`2px solid ${CC_COLOR}`:'2px solid transparent', marginBottom:-1, display:'flex', alignItems:'center', gap:7 }}>
-            {t.label}
-            <span style={{ fontSize:10, fontWeight:700, padding:'1px 7px', borderRadius:20, background:activeSection===t.key?`${CC_COLOR}15`:'#F3F4F6', color:activeSection===t.key?CC_COLOR:B.gray }}>{t.count}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* By Coordinator */}
-      {activeSection==='patients'&&(
-        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          {Object.keys(byCoordinator).length===0
-            ?<div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:14, padding:40, textAlign:'center', color:B.lightGray, fontSize:13 }}>No patient data — upload census to populate</div>
-            :Object.entries(byCoordinator).map(([coord,patients])=>(
-              <div key={coord} style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:14, overflow:'hidden' }}>
-                <div style={{ padding:'12px 20px', background:`${CC_COLOR}08`, borderBottom:`1px solid ${B.border}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                    <div style={{ width:32, height:32, borderRadius:'50%', background:CC_COLOR, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:800, color:'#fff' }}>{coord[0]?.toUpperCase()}</div>
-                    <div style={{ fontSize:14, fontWeight:700, color:B.black }}>{coord}</div>
-                  </div>
-                  <div style={{ fontSize:12, color:B.gray }}>{patients.length} patients</div>
-                </div>
-                {patients.slice(0,8).map((p,i)=>{
-                  const sm=STATUS_META[p.status]||STATUS_META.active;
-                  return (
-                    <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 100px 140px', padding:'10px 20px', borderBottom:'1px solid #F9FAFB', alignItems:'center' }}>
-                      <div style={{ fontSize:13, fontWeight:600 }}>{p.name||p.patientName||'—'}</div>
-                      <div style={{ fontSize:12, color:B.gray }}>Region {p.region||'—'}</div>
-                      <span style={{ background:sm.bg, color:sm.color, border:`1px solid ${sm.color}30`, borderRadius:20, padding:'3px 8px', fontSize:11, fontWeight:700 }}>{sm.label}</span>
-                    </div>
-                  );
-                })}
-                {patients.length>8&&<div style={{ padding:'8px 20px', fontSize:11, color:B.lightGray, borderTop:`1px solid ${B.border}` }}>+{patients.length-8} more patients</div>}
-              </div>
-            ))}
-        </div>
-      )}
-
-      {/* On Hold */}
-      {activeSection==='onhold'&&(
-        <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:14, overflow:'hidden' }}>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 100px 160px 1fr', padding:'10px 20px', background:'#F9FAFB', borderBottom:`1px solid ${B.border}` }}>
-            {['Patient','Region','Hold Status','Coordinator'].map(h=><div key={h} style={{ fontSize:10, fontWeight:700, color:B.lightGray, textTransform:'uppercase', letterSpacing:'0.1em' }}>{h}</div>)}
-          </div>
-          {onHoldPatients.length===0
-            ?<div style={{ padding:32, textAlign:'center', color:B.lightGray, fontSize:13 }}>✅ No patients currently on hold</div>
-            :onHoldPatients.map((p,i)=>{
-              const sm=STATUS_META[p.status]||STATUS_META.on_hold;
-              return <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 100px 160px 1fr', padding:'11px 20px', borderBottom:'1px solid #F3F4F6', alignItems:'center' }}>
-                <div style={{ fontSize:13, fontWeight:600 }}>{p.name||p.patientName||'—'}</div>
-                <div style={{ fontSize:12, color:B.gray }}>Region {p.region||'—'}</div>
-                <span style={{ background:sm.bg, color:sm.color, border:`1px solid ${sm.color}30`, borderRadius:20, padding:'3px 8px', fontSize:11, fontWeight:700 }}>{sm.label}</span>
-                <div style={{ fontSize:12, color:B.gray }}>{p.coordinator||'—'}</div>
-              </div>;
-            })}
-        </div>
-      )}
-
-      {/* High Alert */}
-      {activeSection==='alerts'&&(
-        <div style={{ background:B.card, border:`1px solid ${B.border}`, borderRadius:14, overflow:'hidden' }}>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 100px 150px 1fr', padding:'10px 20px', background:'#FEF2F2', borderBottom:`1px solid ${B.border}` }}>
-            {['Patient','Region','Alert','Coordinator'].map(h=><div key={h} style={{ fontSize:10, fontWeight:700, color:B.danger, textTransform:'uppercase', letterSpacing:'0.1em' }}>{h}</div>)}
-          </div>
-          {alertPatients.length===0
-            ?<div style={{ padding:32, textAlign:'center', color:B.lightGray, fontSize:13 }}>✅ No high alert patients</div>
-            :alertPatients.map((p,i)=>(
-              <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 100px 150px 1fr', padding:'11px 20px', borderBottom:'1px solid #FEF2F2', alignItems:'center', background:'#FFF8F8' }}>
-                <div style={{ fontSize:13, fontWeight:700, color:B.black }}>{p.name||p.patientName||'—'}</div>
-                <div style={{ fontSize:12, color:B.gray }}>Region {p.region||'—'}</div>
-                <span style={{ background:'#FEF2F2', color:B.danger, border:'1px solid #FECACA', borderRadius:20, padding:'3px 8px', fontSize:11, fontWeight:700 }}>Auth Risk</span>
-                <div style={{ fontSize:12, color:B.gray }}>{p.coordinator||'—'}</div>
-              </div>
-            ))}
-        </div>
-      )}
-
-      {/* Visit Activity */}
-      {activeSection==='activity'&&(
-        !hasPariox
-          ?<div style={{ background:'#FFFBEB', border:'1px solid #FDE68A', borderRadius:12, padding:'14px 18px', fontSize:13, color:'#92400E' }}>📤 Upload Pariox visit data in <strong>Data Uploads</strong> to see visit activity.</div>
-          :<div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
-            {[
-              {label:'Scheduled This Week',value:scheduledVisits,color:B.blue,icon:'📅'},
-              {label:'Completed',value:completedVisits,color:B.green,icon:'✅'},
-              {label:'Missed / Incomplete',value:missedVisits,color:B.danger,icon:'⚠️',alert:missedVisits>0},
-            ].map(s=>(
-              <div key={s.label} style={{ background:s.alert?'#FEF2F2':B.card, border:`1.5px solid ${s.alert?B.danger:B.border}`, borderRadius:12, padding:20, textAlign:'center' }}>
-                <div style={{ fontSize:28, marginBottom:8 }}>{s.icon}</div>
-                <div style={{ fontSize:36, fontWeight:800, color:s.color, fontFamily:"'DM Mono',monospace" }}>{s.value}</div>
-                <div style={{ fontSize:13, color:B.gray, marginTop:4 }}>{s.label}</div>
-              </div>
-            ))}
-          </div>
-      )}
-    </div>
-  );
-}
+ 
+ 
