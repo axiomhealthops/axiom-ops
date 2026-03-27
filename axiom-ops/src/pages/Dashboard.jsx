@@ -13,6 +13,7 @@ import AuthTracker from './AuthTracker';
 import SuperAdminPanel from './SuperAdminPanel';
 import GlobalSearch from './GlobalSearch';
 import AuthTimeline from './AuthTimeline';
+import OnHoldRecovery from './OnHoldRecovery';
  
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10',
@@ -95,6 +96,7 @@ export default function Dashboard() {
     if (currentPage === 'authtrack')  return <AuthTracker censusData={censusData} hasCensus={hasCensus} />;
     if (currentPage === 'superadmin') return <SuperAdminPanel />;
     if (currentPage === 'authtimeline') return <AuthTimeline />;
+    if (currentPage === 'recovery') return <OnHoldRecovery />;
     return <DirectorDashboard key={tab} initialTab={tab} />;
   };
  
@@ -183,3 +185,4 @@ export default function Dashboard() {
     </div>
   );
 }
+ 
