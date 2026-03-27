@@ -651,19 +651,7 @@ function PatientProfile({ patientName, onClose }) {
 }
 
 
-const B = {
-  red:'#D94F2B', darkRed:'#8B1A10',
-  black:'#1A1A1A', gray:'#6B7280', lightGray:'#9CA3AF',
-  border:'#E5E7EB', bg:'#F9FAFB', card:'#fff',
-  green:'#16A34A', yellow:'#D97706', danger:'#DC2626', blue:'#1D4ED8',
-};
 
-const PAYER_COLORS = {
-  'Humana':'#0066CC','CarePlus':'#009B77','Medicare/Devoted':'#1565C0',
-  'FL Health Care Plans':'#2E7D32','Aetna':'#7B1FA2','Cigna':'#E65100',
-  'HealthFirst':'#00838F','Simply':'#0891B2','Medicare':'#64748B',
-  'Private Pay':'#92400E','Other':'#6B7280','Unknown':'#9CA3AF',
-};
 
 const STATUS_COLORS = {
   active:B.green, active_auth_pending:'#E8763A', auth_pending:'#D97706',
