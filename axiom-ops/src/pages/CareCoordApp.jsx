@@ -177,8 +177,11 @@ function PatientNotesModal({ patient, currentUser, onClose }) {
 export default function CareCoordApp() {
   const { profile } = useAuth();
   const coordinatorName = profile?.full_name || profile?.name || '';
-  const myRegions = COORD_REGIONS[coordinatorName] || [];
-  const firstName = coordinatorName.split(' ')[0];
+  const assignedRegions = COORD_REGIONS[coordinatorName] || [];
+  const allRegions = Object.keys(REGION_ASSIGNMENTS);
+  const isPreview = assignedRegions.length === 0;
+  const myRegions = isPreview ? allRegions : assignedRegions;
+  const firstName = isPreview ? 'Director' : coordinatorName.split(' ')[0];
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
  
@@ -262,7 +265,7 @@ export default function CareCoordApp() {
   }, [myPatients, showDischarged, filterStatus, search]);
  
   const noData = !censusData;
-  const noRegions = myRegions.length === 0;
+  const noRegions = false; // super admin sees all regions when unassigned
  
   if (noRegions) return (
     <div style={{ fontFamily:"'DM Sans',sans-serif", padding:'48px', textAlign:'center' }}>
@@ -283,7 +286,7 @@ export default function CareCoordApp() {
             <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)', textTransform:'uppercase', letterSpacing:'0.12em', marginBottom:4 }}>Care Coordination</div>
             <div style={{ fontSize:22, fontWeight:800, color:'#fff', marginBottom:2 }}>{greeting}, {firstName} 👋</div>
             <div style={{ fontSize:12, color:'rgba(255,255,255,0.75)' }}>
-              {new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})} · Regions: {myRegions.join(', ')}
+              {new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})} · {isPreview ? 'All Regions (Preview)' : `Regions: ${myRegions.join(', ')}`}
             </div>
           </div>
           <div style={{ display:'flex', gap:20 }}>
