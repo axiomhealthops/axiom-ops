@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { supabase } from '../lib/supabase';
-import PatientProfile from './PatientProfile';
+const PatientProfile = React.lazy(() => import('./PatientProfile'));
 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10',
@@ -200,10 +200,12 @@ export default function GlobalSearch() {
 
       {/* Patient Profile Modal */}
       {selected && (
-        <PatientProfile
-          patientName={selected}
-          onClose={()=>setSelected(null)}
-        />
+        <Suspense fallback={<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:14,fontFamily:'sans-serif'}}>Loading...</div>}>
+          <PatientProfile
+            patientName={selected}
+            onClose={()=>setSelected(null)}
+          />
+        </Suspense>
       )}
     </>
   );
