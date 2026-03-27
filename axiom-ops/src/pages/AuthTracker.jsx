@@ -234,6 +234,85 @@ function PayerSelect({ value, onChange }) {
   );
 }
 
+
+// ── Parser: Pariox patient-level visit export ─────────────────
+// Columns: Patient, Address, Ref Source, Region, Disc, Staff, Event, Date, Time, Ins, Status, Notes
+function parseParioxVisits(XLSX, arrayBuffer) {
+  const wb = XLSX.read(new Uint8Array(arrayBuffer), { type:'array', cellDates:true });
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, defval:null });
+
+  const classifyEvent = (event) => {
+    const e = String(event||'').toLowerCase();
+    if (e.includes('evaluation')) return 'eval';
+    if (e.includes('reassessment') || e.includes('re-assessment')) return 'ra';
+    if (e.includes('cancelled') || e.includes('attempted')) return null;
+    return 'tx';
+  };
+
+  const isCompleted = (status) => String(status||'').toLowerCase().startsWith('completed');
+
+  const resolvePayer = (ref) => {
+    const r = String(ref||'').toUpperCase().trim();
+    if (r.startsWith('HU') || r.startsWith('HUM')) return 'Humana';
+    if (r.startsWith('CP') || r.startsWith('CAR')) return 'CarePlus';
+    if (r.startsWith('AC') || r.startsWith('AET')) return 'Aetna';
+    if (r.startsWith('AM')) return 'Aetna';
+    if (r.startsWith('FHC')) return 'FL Health Care Plans';
+    if (r.startsWith('DH') || r.startsWith('DEV')) return 'Medicare/Devoted';
+    if (r.startsWith('SV') || r.startsWith('SIM')) return 'Simply';
+    if (r.startsWith('HF')) return 'HealthFirst';
+    if (r.startsWith('CIG') || r.startsWith('CMA')) return 'Cigna';
+    if (r.startsWith('MED')) return 'Medicare';
+    return null;
+  };
+
+  const extractRegion = (address) => {
+    const m = String(address||'').match(/\d{5}/);
+    return m ? m[0].slice(-1).toUpperCase() : '';
+  };
+
+  const patientMap = {};
+  for (const row of rows) {
+    if (!row[0] || row[0] === 'Patient') continue;
+    const patient = String(row[0]).trim();
+    const event   = String(row[6]||'');
+    const status  = String(row[10]||'');
+    const ref     = String(row[2]||'');
+    const address = String(row[1]||'');
+    const visitDate = row[7];
+
+    const vtype = classifyEvent(event);
+    if (!vtype) continue;
+
+    const completed = isCompleted(status);
+    if (!patientMap[patient]) {
+      patientMap[patient] = {
+        patient_name: patient,
+        region: extractRegion(address),
+        payer: resolvePayer(ref),
+        eval_completed:0, eval_scheduled:0,
+        tx_completed:0,   tx_scheduled:0,
+        ra_completed:0,   ra_scheduled:0,
+        last_visit_date: null,
+      };
+    }
+    if (completed) {
+      patientMap[patient][`${vtype}_completed`]++;
+      if (visitDate) {
+        const d = visitDate instanceof Date ? visitDate.toISOString().split('T')[0]
+          : String(visitDate).slice(0,10);
+        if (!patientMap[patient].last_visit_date || d > patientMap[patient].last_visit_date) {
+          patientMap[patient].last_visit_date = d;
+        }
+      }
+    } else {
+      patientMap[patient][`${vtype}_scheduled`]++;
+    }
+  }
+
+  return Object.values(patientMap);
+}
+
 // ── Import Panel Component ────────────────────────────────────
 const IMPORT_CONFIGS = [
   { key:'ethel_humana',   label:"Ethel — Humana",               assignTo:'Ethel Camposano', color:'#0066CC', hint:'HUMANA_AUTH_TRACKING.xlsx' },
@@ -241,6 +320,7 @@ const IMPORT_CONFIGS = [
   { key:'carla',          label:"Carla — Weekly Auth Report",    assignTo:'Carla Smith',     color:'#D94F2B', hint:"Carla_s_Weekly_Auth_Report.xlsx" },
   { key:'carla_multi',    label:"Carla — Multi-Payer (CP/FHCP)", assignTo:'Carla Smith',     color:'#B45309', hint:'CP_SH_FHCP_DE_AUTH_TRACKING_2024.xlsx' },
   { key:'gerilyn',        label:"Gerilyn — Humana/CarePlus",     assignTo:'Gerilyn Bayson',  color:'#7C3AED', hint:'HUMANA_A_G_M_CAREPLUS_G_M-GERILYN.xlsx' },
+  { key:'pariox_visits',  label:"Pariox — Visit Sync (Auto-Update Counters)", assignTo:null, color:'#059669', hint:'Pariox_Report_MM_DD_YY.xlsx', isVisitSync:true },
 ];
 
 // Insurance code → payer name mapping for Carla's file
@@ -746,6 +826,34 @@ function ImportPanel({ onImportComplete }) {
         else if (key === 'carla') records = parseCarlaFormat(XLSX, buf, cfg.assignTo);
         else if (key === 'carla_multi') records = parseUrielFormat(XLSX, buf, cfg.assignTo);
         else if (key === 'gerilyn') records = parseGerielynFormat(XLSX, buf, cfg.assignTo);
+        else if (key === 'pariox_visits') {
+          // Pariox visit sync — updates existing auth records, doesn't insert new ones
+          setProgress('Syncing Pariox visit data to auth records...');
+          const visitData = parseParioxVisits(XLSX, buf);
+          let synced = 0;
+          for (const v of visitData) {
+            // Match by patient name (case-insensitive)
+            const { data: matches } = await supabase
+              .from('auth_records')
+              .select('id, eval_used, tx_used, ra_used, patient_name')
+              .ilike('patient_name', v.patient_name);
+            if (matches && matches.length > 0) {
+              const rec = matches[0];
+              await supabase.from('auth_records').update({
+                eval_used: v.eval_completed,
+                tx_used:   v.tx_completed,
+                ra_used:   v.ra_completed,
+                updated_at: new Date().toISOString(),
+              }).eq('id', rec.id);
+              synced++;
+            }
+          }
+          setProgress(`Pariox sync complete — ${synced} of ${visitData.length} patients matched`);
+          await new Promise(r => setTimeout(r, 1500)); // show message briefly
+          setImporting(false);
+          onImportComplete();
+          return; // skip normal insert flow
+        }
         allRecords = allRecords.concat(records);
         setProgress(`${cfg.label}: ${records.length} records parsed`);
       }
@@ -798,7 +906,7 @@ function ImportPanel({ onImportComplete }) {
       }
 
       const summary = {};
-      allRecords.forEach(r => { summary[r.assigned_to] = (summary[r.assigned_to]||0)+1; });
+      allRecords.forEach(r => { if(r.assigned_to) summary[r.assigned_to] = (summary[r.assigned_to]||0)+1; });
       setDone({ total: allRecords.length, summary });
       setProgress(''); setImporting(false);
       onImportComplete();
@@ -1530,6 +1638,18 @@ export default function AuthTracker() {
     setView('edit');
   };
 
+  const quickIncrement = async (record, field) => {
+    const current = parseInt(record[field]) || 0;
+    const approvedField = field.replace('_used', '_approved');
+    const approved = parseInt(record[approvedField]) || 0;
+    if (approved > 0 && current >= approved) return;
+    await supabase.from('auth_records').update({
+      [field]: current + 1,
+      updated_at: new Date().toISOString(),
+    }).eq('id', record.id);
+    await loadRecords();
+  };
+
   const saveRecord = async () => {
     setSaving(true);
     const payload = {
@@ -1968,8 +2088,11 @@ export default function AuthTracker() {
             {visible.slice(0,200).map(r=>{
               const meta=PRIORITY_META[r.priority]||PRIORITY_META.ok;
               const payCol=PAYER_COLORS[r.payer]||B.gray;
+              const txRem=(r.tx_approved||0)-(r.tx_used||0);
+              const evalRem=(r.eval_approved||0)-(r.eval_used||0);
+              const raRem=(r.ra_approved||0)-(r.ra_used||0);
               return (
-                <div key={r.id} style={{ display:'grid', gridTemplateColumns:'180px 100px 55px 80px 120px 60px 50px 50px 80px 80px 1fr', padding:'8px 14px', borderBottom:'1px solid #FAF4F2', alignItems:'center', background:['expiring_critical','visits_low','no_auth'].includes(r.priority)?'#FFFBEB':r.priority==='followup_due'?'#FFF5F2':'transparent' }}>
+                <div key={r.id} style={{ display:'grid', gridTemplateColumns:'170px 95px 45px 75px 110px 60px 90px 80px 80px 130px 1fr', padding:'8px 14px', borderBottom:'1px solid #FAF4F2', alignItems:'center', background:['expiring_critical','visits_low','no_auth'].includes(r.priority)?'#FFFBEB':r.priority==='followup_due'?'#FFF5F2':'transparent' }}>
                   <div style={{ fontSize:12, fontWeight:600, color:B.black, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.patient_name}</div>
                   <div style={{ fontSize:11, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                     {r.payer === 'Unknown'
