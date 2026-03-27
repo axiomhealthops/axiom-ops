@@ -15,6 +15,12 @@ import GlobalSearch from './GlobalSearch';
 import AuthTimeline from './AuthTimeline';
 import OnHoldRecovery from './OnHoldRecovery';
 import DailyReports from './DailyReports';
+import RevenueDashboard from './RevenueDashboard';
+import GrowthTracker from './GrowthTracker';
+import Scorecard from './Scorecard';
+import StaffDirectory from './StaffDirectory';
+import RegionalBreakdown from './RegionalBreakdown';
+import ExpansionTracker from './ExpansionTracker';
  
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10',
@@ -24,10 +30,9 @@ const B = {
 };
  
 const PAGE_TO_TAB = {
-  overview:'overview', revenue:'revenue', growth:'growth', scorecard:'scorecard',
-  trends:'trends', staff:'staff', regions:'regions', team:'team',
-  expansion:'expansion', reports:'reports', executive:'scorecard',
-  recovery:'recovery', auths:'auths', data:'data', settings:'⚙️',
+  overview:'overview', trends:'trends', team:'team',
+  reports:'reports', executive:'executive',
+  recovery:'recovery', data:'data', settings:'⚙️',
 };
  
 const PAGE_TITLES = {
@@ -99,7 +104,15 @@ export default function Dashboard() {
     if (currentPage === 'authtimeline') return <AuthTimeline />;
     if (currentPage === 'recovery') return <OnHoldRecovery />;
     if (currentPage === 'reports') return <DailyReports />;
-    return <DirectorDashboard key={tab} initialTab={tab} />;
+    if (currentPage === 'revenue')   return <RevenueDashboard />;
+    if (currentPage === 'growth')    return <GrowthTracker />;
+    if (currentPage === 'scorecard') return <Scorecard />;
+    if (currentPage === 'staff')     return <StaffDirectory />;
+    if (currentPage === 'regions')   return <RegionalBreakdown />;
+    if (currentPage === 'expansion') return <ExpansionTracker />;
+    if (currentPage === 'team')      return <DirectorDashboard key="team"  initialTab="team" />;
+    if (currentPage === 'trends')    return <DirectorDashboard key="trends" initialTab="trends" />;
+    return <DirectorDashboard key="overview" initialTab="overview" />;
   };
  
   return (
