@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useOpsData } from '../hooks/useOpsData';
+import PatientProfile from './PatientProfile';
 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10', orange:'#E8763A',
@@ -32,6 +33,7 @@ export default function PatientCensus() {
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [search, setSearch] = useState('');
   const [view, setView] = useState('summary');
+  const [selectedPatient, setSelectedPatient] = useState(null);
 
   if (loading) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:60, color:B.lightGray, fontFamily:"'DM Sans', sans-serif" }}>
@@ -57,6 +59,7 @@ export default function PatientCensus() {
     .filter(p => !search || p.name?.toLowerCase().includes(search.toLowerCase()));
 
   return (
+    <>
     <div style={{ fontFamily:"'DM Sans', sans-serif" }}>
       {/* Header */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24 }}>
@@ -190,8 +193,8 @@ export default function PatientCensus() {
                 {filteredPatients.slice(0,100).map((p, i) => {
                   const meta = STATUS_META[p.status] || STATUS_META.active;
                   return (
-                    <div key={i} style={{ display:'grid', gridTemplateColumns:'220px 70px 150px 100px 1fr', padding:'9px 18px', borderBottom:`1px solid #FAF4F2`, alignItems:'center' }}>
-                      <div style={{ fontSize:12, fontWeight:600, color:B.black }}>{p.name}</div>
+                    <div key={i} onClick={()=>setSelectedPatient(p.name)} style={{ display:'grid', gridTemplateColumns:'220px 70px 150px 100px 1fr', padding:'9px 18px', borderBottom:`1px solid #FAF4F2`, alignItems:'center', cursor:'pointer' }} onMouseEnter={e=>e.currentTarget.style.background='#FFF5F2'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                      <div style={{ fontSize:12, fontWeight:600, color:'#D94F2B', textDecoration:'underline dotted' }}>{p.name}</div>
                       <div style={{ fontSize:12, color:B.gray }}>{p.region}</div>
                       <div>
                         <span style={{ background:meta.bg, color:meta.color, border:`1px solid ${meta.border}`, borderRadius:20, padding:'2px 8px', fontSize:10, fontWeight:700 }}>
@@ -216,5 +219,12 @@ export default function PatientCensus() {
         </>
       )}
     </div>
+      {selectedPatient && (
+        <PatientProfile
+          patientName={selectedPatient}
+          onClose={()=>setSelectedPatient(null)}
+        />
+      )}
+    </>
   );
 }
