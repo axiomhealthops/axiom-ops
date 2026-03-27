@@ -6,49 +6,51 @@ import PatientCensus from './PatientCensus';
 import VisitSchedule from './VisitSchedule';
 import CoordinatorApp from './CoordinatorApp';
 import GlobalSearch from './GlobalSearch';
-
+import AuthTimeline from './AuthTimeline';
+ 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10',
   black:'#1A1A1A', gray:'#8B6B64', lightGray:'#BBA8A4',
   border:'#F0E4E0', bg:'#F6F0EE', card:'#fff',
   bg_dark:'#0F1117', surface_dark:'#161B26',
 };
-
+ 
 const TEAM_META = {
   auth:       { label:'Authorization Team',     color:'#0369A1', icon:'🔒', accent:'#EFF6FF' },
   care_coord: { label:'Care Coordination Team', color:'#059669', icon:'🏥', accent:'#F0FDF4' },
   intake:     { label:'Intake Team',            color:'#7C3AED', icon:'📥', accent:'#F5F3FF' },
 };
-
+ 
 function getAllowedPages(role, team) {
   if (role === 'team_member') {
     const base = ['home', 'census', 'visits'];
-    if (team === 'auth')       return [...base, 'authtrack', 'submit'];
+    if (team === 'auth')       return [...base, 'authtrack', 'authtimeline', 'submit'];
     if (team === 'care_coord') return [...base, 'reports', 'actions'];
     if (team === 'intake')     return [...base, 'submit'];
     return base;
   }
   if (role === 'team_leader') {
-    return ['home', 'census', 'visits', 'authtrack', 'reports', 'actions'];
+    return ['home', 'census', 'visits', 'authtrack', 'reports', 'actions', 'authtimeline'];
   }
   return [];
 }
-
+ 
 const ALL_PAGES = [
   { id:'home',     label:'Dashboard',        icon:'🏠', section:'Home'       },
   { id:'census',   label:'Patient Census',   icon:'👥', section:'Operations' },
   { id:'visits',   label:'Visit Schedule',   icon:'📅', section:'Operations' },
   { id:'authtrack',label:'Auth Tracker',     icon:'📑', section:'Operations' },
   { id:'actions',  label:'Action List',      icon:'📋', section:'Operations' },
-  { id:'reports',  label:'Daily Reports',    icon:'📝', section:'Reports'    },
+  { id:'reports',    label:'Daily Reports',         icon:'📝', section:'Reports'    },
+  { id:'authtimeline',label:'Auth Timeline',           icon:'⏱️', section:'Reports'    },
   { id:'submit',   label:'Submit Report',    icon:'✏️', section:'Reports'    },
 ];
-
+ 
 // ── Sidebar ────────────────────────────────────────────────────────────────
 function MCsidebar({ activePage, onNavigate, allowedPages, teamMeta, profile, onSignOut }) {
   const visiblePages = ALL_PAGES.filter(p => allowedPages.includes(p.id));
   const sections = [...new Set(visiblePages.map(p => p.section))];
-
+ 
   return (
     <div style={{
       width: 220, background: B.bg_dark, display: 'flex', flexDirection: 'column',
@@ -68,7 +70,7 @@ function MCsidebar({ activePage, onNavigate, allowedPages, teamMeta, profile, on
           <span style={{ fontSize: 11, fontWeight: 700, color: teamMeta.color }}>{teamMeta.label}</span>
         </div>
       </div>
-
+ 
       {/* Nav */}
       <nav style={{ flex: 1, padding: '12px 8px', overflowY: 'auto' }}>
         <style>{`.mc-nav-item:hover { background: rgba(217,79,43,0.1) !important; } .mc-nav-item.active { background: rgba(217,79,43,0.15) !important; border-right: 2px solid #D94F2B; }`}</style>
@@ -100,7 +102,7 @@ function MCsidebar({ activePage, onNavigate, allowedPages, teamMeta, profile, on
           </div>
         ))}
       </nav>
-
+ 
       {/* User footer */}
       <div style={{ padding: '12px 16px', borderTop: `1px solid rgba(255,255,255,0.07)` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
@@ -133,7 +135,7 @@ function MCsidebar({ activePage, onNavigate, allowedPages, teamMeta, profile, on
     </div>
   );
 }
-
+ 
 // ── Top bar with global search ─────────────────────────────────────────────
 function TopBar({ title, teamMeta }) {
   const [time, setTime] = useState(new Date());
@@ -141,7 +143,7 @@ function TopBar({ title, teamMeta }) {
     const t = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(t);
   });
-
+ 
   return (
     <div style={{
       background: B.card, borderBottom: `1px solid ${B.border}`,
@@ -151,12 +153,12 @@ function TopBar({ title, teamMeta }) {
     }}>
       {/* Page title */}
       <div style={{ fontSize: 14, fontWeight: 700, color: B.black, flexShrink: 0 }}>{title}</div>
-
+ 
       {/* Global patient search — center */}
       <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
         <GlobalSearch />
       </div>
-
+ 
       {/* Clock — right */}
       <div style={{ textAlign: 'right', fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: B.red }}>
@@ -169,24 +171,25 @@ function TopBar({ title, teamMeta }) {
     </div>
   );
 }
-
+ 
 const PAGE_TITLES = {
   home:     'Dashboard',
   census:   'Patient Census',
   visits:   'Visit Schedule',
   authtrack:'Authorization Tracker',
+  authtimeline:'Authorization Timeline',
   actions:  'Action List',
   reports:  'Daily Reports',
   submit:   'Submit Report',
 };
-
+ 
 // ── Main ───────────────────────────────────────────────────────────────────
 export default function MissionControlApp() {
   const { profile, role, team, signOut } = useAuth();
   const teamMeta = TEAM_META[team] || TEAM_META.auth;
   const allowedPages = getAllowedPages(role, team);
   const [currentPage, setCurrentPage] = useState('home');
-
+ 
   if (!team) {
     return (
       <div style={{ minHeight: '100vh', background: B.bg, display: 'flex', alignItems: 'center',
@@ -206,7 +209,7 @@ export default function MissionControlApp() {
       </div>
     );
   }
-
+ 
   const renderPage = () => {
     switch (currentPage) {
       case 'home':
@@ -224,6 +227,7 @@ export default function MissionControlApp() {
             <div style={{ fontSize: 13, color: B.gray }}>Team reports will display here. Full integration coming in next build.</div>
           </div>
         );
+      case 'authtimeline': return <AuthTimeline />;
       case 'actions':
         return (
           <div style={{ padding: 32, fontFamily: "'DM Sans', sans-serif" }}>
@@ -235,7 +239,7 @@ export default function MissionControlApp() {
         return null;
     }
   };
-
+ 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: B.bg,
       fontFamily: "'DM Sans', sans-serif" }}>
@@ -256,3 +260,4 @@ export default function MissionControlApp() {
     </div>
   );
 }
+ 
