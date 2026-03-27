@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import React, { useState, Suspense } from 'react';
 import { useOpsData } from '../hooks/useOpsData';
-import PatientProfile from './PatientProfile';
+const PatientProfile = React.lazy(() => import('./PatientProfile'));
 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10', orange:'#E8763A',
@@ -220,10 +220,12 @@ export default function PatientCensus() {
       )}
     </div>
       {selectedPatient && (
-        <PatientProfile
-          patientName={selectedPatient}
-          onClose={()=>setSelectedPatient(null)}
-        />
+        <Suspense fallback={<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:14}}>Loading patient profile...</div>}>
+          <PatientProfile
+            patientName={selectedPatient}
+            onClose={()=>setSelectedPatient(null)}
+          />
+        </Suspense>
       )}
     </>
   );
