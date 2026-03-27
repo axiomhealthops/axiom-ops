@@ -8,6 +8,7 @@ import CoordinatorApp from './CoordinatorApp';
 import GlobalSearch from './GlobalSearch';
 import AuthTimeline from './AuthTimeline';
 import OnHoldRecovery from './OnHoldRecovery';
+import DailyReports from './DailyReports';
  
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10',
@@ -232,6 +233,7 @@ export default function MissionControlApp() {
         );
       case 'authtimeline': return <AuthTimeline />;
       case 'recovery': return <OnHoldRecovery />;
+      case 'reports': return <DailyReports />;
       case 'actions':
         return (
           <div style={{ padding: 32, fontFamily: "'DM Sans', sans-serif" }}>
