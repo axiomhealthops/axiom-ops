@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
-
+ 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10', orange:'#E8763A',
   bg:'#0F1117', surface:'#161B26', border:'rgba(255,255,255,0.07)',
   text:'#F0EDE9', muted:'rgba(255,255,255,0.45)', accent:'#D94F2B',
   green:'#22C55E', yellow:'#F59E0B',
 };
-
+ 
 const NAV = [
   {
     section: 'Command Center',
@@ -22,45 +22,45 @@ const NAV = [
     section: 'Operations',
     icon: '🏥',
     items: [
-      { id: 'census',      label: 'Patient Census',    icon: '👥', roles: ['super_admin','ceo','director','regional_mgr','pod_leader','team_leader','team_member'] },
-      { id: 'visits',      label: 'Visit Schedule',    icon: '📅', roles: ['super_admin','ceo','director','regional_mgr','pod_leader','team_leader','team_member'] },
-      { id: 'recovery',    label: 'On-Hold Recovery',  icon: '⏸️', roles: ['super_admin','director','regional_mgr'], badge: 'onhold' },
-      { id: 'auths',       label: 'Authorizations',    icon: '🔒', roles: ['super_admin','director','regional_mgr'], badge: 'auths' },
-      { id: 'authtrack',   label: 'Auth Tracker',      icon: '📑', roles: ['super_admin','director','regional_mgr','pod_leader','team_leader','team_member'] },
+      { id: 'census',    label: 'Patient Census',   icon: '👥', roles: ['super_admin','ceo','director','regional_mgr','pod_leader','team_leader','team_member'] },
+      { id: 'visits',    label: 'Visit Schedule',   icon: '📅', roles: ['super_admin','ceo','director','regional_mgr','pod_leader','team_leader','team_member'] },
+      { id: 'recovery',  label: 'On-Hold Recovery', icon: '⏸️', roles: ['super_admin','director','regional_mgr'], badge: 'onhold' },
+      { id: 'authtrack', label: 'Auth Tracker',     icon: '📑', roles: ['super_admin','director','regional_mgr','pod_leader','team_leader','team_member'] },
     ],
   },
   {
     section: 'Performance',
     icon: '📊',
     items: [
-      { id: 'revenue',     label: 'Revenue',           icon: '💰', roles: ['super_admin','ceo','director'] },
-      { id: 'growth',      label: 'Growth Tracker',    icon: '📈', roles: ['super_admin','ceo','director'] },
-      { id: 'scorecard',   label: 'Scorecard',         icon: '🎯', roles: ['super_admin','ceo','director','regional_mgr'] },
-      { id: 'trends',      label: 'Trends',            icon: '〰️', roles: ['super_admin','director','regional_mgr'] },
+      { id: 'revenue',   label: 'Revenue',         icon: '💰', roles: ['super_admin','ceo','director'] },
+      { id: 'growth',    label: 'Growth Tracker',  icon: '📈', roles: ['super_admin','ceo','director'] },
+      { id: 'scorecard', label: 'Scorecard',       icon: '🎯', roles: ['super_admin','ceo','director','regional_mgr'] },
+      { id: 'trends',    label: 'Trends',          icon: '〰️', roles: ['super_admin','director','regional_mgr'] },
     ],
   },
   {
     section: 'People',
     icon: '👤',
     items: [
-      { id: 'staff',       label: 'Staff Directory',   icon: '🏷️', roles: ['super_admin','director','regional_mgr','pod_leader'] },
-      { id: 'regions',     label: 'Regions',           icon: '🗺️', roles: ['super_admin','director','regional_mgr'] },
-      { id: 'team',        label: 'Team',              icon: '🤝', roles: ['super_admin','director','regional_mgr'] },
+      { id: 'staff',   label: 'Staff Directory', icon: '🏷️', roles: ['super_admin','director','regional_mgr','pod_leader'] },
+      { id: 'regions', label: 'Regions',         icon: '🗺️', roles: ['super_admin','director','regional_mgr'] },
+      { id: 'team',    label: 'Team',            icon: '🤝', roles: ['super_admin','director','regional_mgr'] },
     ],
   },
   {
     section: 'Planning',
     icon: '🚀',
     items: [
-      { id: 'expansion',   label: 'Expansion',         icon: '🌎', roles: ['super_admin','ceo','director'] },
+      { id: 'expansion', label: 'Expansion', icon: '🌎', roles: ['super_admin','ceo','director'] },
     ],
   },
   {
     section: 'Reports',
     icon: '📋',
     items: [
-      { id: 'reports',     label: 'Daily Reports',     icon: '📝', roles: ['super_admin','director','regional_mgr','pod_leader','team_leader'] },
-      { id: 'executive',   label: 'Executive Report',  icon: '📊', roles: ['super_admin','ceo','director'] },
+      { id: 'reports',      label: 'Daily Reports',    icon: '📝', roles: ['super_admin','director','regional_mgr','pod_leader','team_leader'] },
+      { id: 'authtimeline', label: 'Auth Timeline',    icon: '⏱️', roles: ['super_admin','director','regional_mgr'] },
+      { id: 'executive',    label: 'Executive Report', icon: '📊', roles: ['super_admin','ceo','director'] },
     ],
   },
   {
@@ -68,51 +68,50 @@ const NAV = [
     icon: '⚙️',
     adminOnly: true,
     items: [
-      { id: 'superadmin',  label: 'Super Admin Panel', icon: '🔑', roles: ['super_admin'] },
-      { id: 'users',       label: 'User Management',   icon: '👤', roles: ['super_admin'] },
-      { id: 'data',        label: 'Data Uploads',      icon: '📤', roles: ['super_admin','director'] },
-      { id: 'settings',    label: 'Settings',          icon: '⚙️', roles: ['super_admin','director'] },
+      { id: 'superadmin', label: 'Super Admin Panel', icon: '🔑', roles: ['super_admin'] },
+      { id: 'users',      label: 'User Management',   icon: '👤', roles: ['super_admin'] },
+      { id: 'data',       label: 'Data Uploads',      icon: '📤', roles: ['super_admin','director'] },
+      { id: 'settings',   label: 'Settings',          icon: '⚙️', roles: ['super_admin','director'] },
     ],
   },
 ];
-
+ 
 export default function Sidebar({ activePage, onNavigate, alerts = {} }) {
   const { profile, role, signOut } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState({});
-
+ 
   const toggleSection = (section) => {
     setCollapsedSections(p => ({ ...p, [section]: !p[section] }));
   };
-
+ 
   const getRoleBadge = (r) => {
     const map = {
-      super_admin: { label: 'Super Admin', color: '#D94F2B' },
-      ceo:         { label: 'CEO',         color: '#7C3AED' },
-      director:    { label: 'Director',    color: '#1565C0' },
-      regional_mgr:{ label: 'Reg. Manager',color: '#059669' },
-      coordinator: { label: 'Coordinator', color: '#D97706' },
-      admin:       { label: 'Admin',       color: '#6B7280' },
+      super_admin:  { label: 'Super Admin',  color: '#D94F2B' },
+      ceo:          { label: 'CEO',          color: '#7C3AED' },
+      director:     { label: 'Director',     color: '#1565C0' },
+      regional_mgr: { label: 'Reg. Manager', color: '#059669' },
+      coordinator:  { label: 'Coordinator',  color: '#D97706' },
+      admin:        { label: 'Admin',        color: '#6B7280' },
     };
     return map[r] || { label: r, color: '#6B7280' };
   };
-
+ 
   const roleBadge = getRoleBadge(role);
-
-  // Filter nav items by role
+ 
   const visibleNav = NAV.map(section => ({
     ...section,
     items: section.items.filter(item => item.roles.includes(role))
   })).filter(section => section.items.length > 0);
-
+ 
   const getBadgeCount = (badgeKey) => {
-    if (badgeKey === 'alerts') return alerts.critical || 0;
-    if (badgeKey === 'onhold') return alerts.onHold || 0;
-    if (badgeKey === 'auths') return alerts.authPending || 0;
+    if (badgeKey === 'alerts')  return alerts.critical || 0;
+    if (badgeKey === 'onhold')  return alerts.onHold || 0;
+    if (badgeKey === 'auths')   return alerts.authPending || 0;
     if (badgeKey === 'actions') return alerts.actionItems || 0;
     return 0;
   };
-
+ 
   return (
     <div style={{
       width: collapsed ? 64 : 240,
@@ -137,7 +136,7 @@ export default function Sidebar({ activePage, onNavigate, alerts = {} }) {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
       `}</style>
-
+ 
       {/* Logo + collapse */}
       <div style={{ padding: '16px 14px', borderBottom: `1px solid ${B.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         {!collapsed && (
@@ -155,7 +154,7 @@ export default function Sidebar({ activePage, onNavigate, alerts = {} }) {
           marginLeft: collapsed ? 'auto' : 0,
         }}>{collapsed ? '→' : '←'}</button>
       </div>
-
+ 
       {/* User pill */}
       {!collapsed && (
         <div style={{ padding: '12px 14px', borderBottom: `1px solid ${B.border}`, flexShrink: 0 }}>
@@ -170,12 +169,11 @@ export default function Sidebar({ activePage, onNavigate, alerts = {} }) {
           </div>
         </div>
       )}
-
+ 
       {/* Navigation */}
       <nav style={{ flex: 1, padding: '8px 0', fontFamily: "'DM Sans', sans-serif" }}>
         {visibleNav.map(section => (
           <div key={section.section} style={{ marginBottom: 4 }}>
-            {/* Section header */}
             {!collapsed && (
               <button onClick={() => toggleSection(section.section)} style={{
                 width: '100%', background: 'none', border: 'none', cursor: 'pointer',
@@ -187,8 +185,6 @@ export default function Sidebar({ activePage, onNavigate, alerts = {} }) {
                 <span style={{ color: B.muted, fontSize: 10 }}>{collapsedSections[section.section] ? '▶' : '▾'}</span>
               </button>
             )}
-
-            {/* Items */}
             {!collapsedSections[section.section] && section.items.map(item => {
               const isActive = activePage === item.id;
               const badgeCount = item.badge ? getBadgeCount(item.badge) : 0;
@@ -222,7 +218,7 @@ export default function Sidebar({ activePage, onNavigate, alerts = {} }) {
           </div>
         ))}
       </nav>
-
+ 
       {/* Bottom — sign out */}
       <div style={{ padding: '12px 14px', borderTop: `1px solid ${B.border}`, flexShrink: 0 }}>
         <button onClick={signOut} style={{
@@ -238,3 +234,4 @@ export default function Sidebar({ activePage, onNavigate, alerts = {} }) {
     </div>
   );
 }
+ 
