@@ -7,6 +7,7 @@ import VisitSchedule from './VisitSchedule';
 import CoordinatorApp from './CoordinatorApp';
 import GlobalSearch from './GlobalSearch';
 import AuthTimeline from './AuthTimeline';
+import OnHoldRecovery from './OnHoldRecovery';
  
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10',
@@ -30,7 +31,7 @@ function getAllowedPages(role, team) {
     return base;
   }
   if (role === 'team_leader') {
-    return ['home', 'census', 'visits', 'authtrack', 'reports', 'actions', 'authtimeline'];
+    return ['home', 'census', 'visits', 'authtrack', 'reports', 'actions', 'authtimeline', 'recovery'];
   }
   return [];
 }
@@ -43,6 +44,7 @@ const ALL_PAGES = [
   { id:'actions',  label:'Action List',      icon:'📋', section:'Operations' },
   { id:'reports',    label:'Daily Reports',         icon:'📝', section:'Reports'    },
   { id:'authtimeline',label:'Auth Timeline',           icon:'⏱️', section:'Reports'    },
+  { id:'recovery',    label:'On-Hold Recovery',       icon:'⏸️', section:'Operations' },
   { id:'submit',   label:'Submit Report',    icon:'✏️', section:'Reports'    },
 ];
  
@@ -178,6 +180,7 @@ const PAGE_TITLES = {
   visits:   'Visit Schedule',
   authtrack:'Authorization Tracker',
   authtimeline:'Authorization Timeline',
+  recovery:'On-Hold Recovery',
   actions:  'Action List',
   reports:  'Daily Reports',
   submit:   'Submit Report',
@@ -228,6 +231,7 @@ export default function MissionControlApp() {
           </div>
         );
       case 'authtimeline': return <AuthTimeline />;
+      case 'recovery': return <OnHoldRecovery />;
       case 'actions':
         return (
           <div style={{ padding: 32, fontFamily: "'DM Sans', sans-serif" }}>
