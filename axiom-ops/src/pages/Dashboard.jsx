@@ -12,6 +12,7 @@ import ActionList from './ActionList';
 import AuthTracker from './AuthTracker';
 import SuperAdminPanel from './SuperAdminPanel';
 import GlobalSearch from './GlobalSearch';
+import AuthTimeline from './AuthTimeline';
  
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10',
@@ -36,6 +37,7 @@ const PAGE_TITLES = {
   auths:'Authorization Pipeline', data:'Data & Integrations', settings:'Settings',
   users:'User Management', actions:'Director Action List', authtrack:'Authorization Tracker',
   superadmin:'Super Admin Panel',
+  authtimeline:'Authorization Timeline',
 };
  
 const ROLE_VIEWS = [
@@ -92,6 +94,7 @@ export default function Dashboard() {
     if (currentPage === 'actions')    return <ActionList censusData={censusData} hasCensus={hasCensus} />;
     if (currentPage === 'authtrack')  return <AuthTracker censusData={censusData} hasCensus={hasCensus} />;
     if (currentPage === 'superadmin') return <SuperAdminPanel />;
+    if (currentPage === 'authtimeline') return <AuthTimeline />;
     return <DirectorDashboard key={tab} initialTab={tab} />;
   };
  
