@@ -40,8 +40,7 @@ const PAGE_TITLES = {
   visits:'Visit Schedule', revenue:'Revenue Dashboard', growth:'Growth Tracker',
   scorecard:'Operations Scorecard', trends:'Visit Trends', staff:'Staff Directory',
   regions:'Regional Breakdown', team:'Team Performance', expansion:'Expansion Tracker',
-  reports:'Daily Reports', executive:'Executive Report', recovery:'On-Hold Recovery',
-  auths:'Authorization Pipeline', data:'Data & Integrations', settings:'Settings',
+  reports:'Daily Reports', executive:'Executive Report', recovery:'On-Hold Recovery', data:'Data & Integrations', settings:'Settings',
   users:'User Management', actions:'Director Action List', authtrack:'Authorization Tracker',
   superadmin:'Super Admin Panel',
   authtimeline:'Authorization Timeline',
@@ -104,6 +103,8 @@ export default function Dashboard() {
     if (currentPage === 'authtimeline') return <AuthTimeline />;
     if (currentPage === 'recovery') return <OnHoldRecovery />;
     if (currentPage === 'reports') return <DailyReports />;
+    if (currentPage === 'data')      return <DirectorDashboard key="data"     initialTab="data" />;
+    if (currentPage === 'settings')  return <DirectorDashboard key="settings" initialTab="⚙️" />;
     if (currentPage === 'revenue')   return <RevenueDashboard />;
     if (currentPage === 'growth')    return <GrowthTracker />;
     if (currentPage === 'scorecard') return <Scorecard />;
