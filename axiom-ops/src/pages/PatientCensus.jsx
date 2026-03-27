@@ -653,12 +653,6 @@ function PatientProfile({ patientName, onClose }) {
 
 
 
-const B = {
-  red:'#D94F2B', darkRed:'#8B1A10', orange:'#E8763A',
-  black:'#1A1A1A', gray:'#8B6B64', lightGray:'#BBA8A4',
-  border:'#F0E4E0', bg:'#FBF7F6', card:'#fff',
-  green:'#2E7D32', yellow:'#D97706', danger:'#DC2626', blue:'#1565C0',
-};
 
 const STATUS_META = {
   active:              { label:'Active',             color:B.green,  bg:'#F0FDF4', border:'#BBF7D0', icon:'✅', desc:'In treatment' },
