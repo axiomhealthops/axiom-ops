@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { AuthDashboard, CareCoordDashboard } from './TeamDashboard';
+import { AuthDashboard } from './TeamDashboard';
+import CareCoordApp from './CareCoordApp';
 import AuthTracker from './AuthTracker';
 import PatientCensus from './PatientCensus';
 import VisitSchedule from './VisitSchedule';
@@ -27,7 +28,7 @@ function getAllowedPages(role, team) {
   if (role === 'team_member') {
     const base = ['home', 'census', 'visits'];
     if (team === 'auth')       return [...base, 'authtrack', 'authtimeline', 'submit'];
-    if (team === 'care_coord') return [...base, 'reports', 'actions'];
+    if (team === 'care_coord') return [...base, 'reports', 'actions', 'recovery'];
     if (team === 'intake')     return [...base, 'submit'];
     return base;
   }
@@ -218,29 +219,16 @@ export default function MissionControlApp() {
     switch (currentPage) {
       case 'home':
         if (team === 'auth')       return <AuthDashboard />;
-        if (team === 'care_coord') return <CareCoordDashboard />;
+        if (team === 'care_coord') return <CareCoordApp />;
         return <AuthDashboard />;
       case 'census':    return <PatientCensus />;
       case 'visits':    return <VisitSchedule />;
       case 'authtrack': return <AuthTracker />;
       case 'submit':    return <CoordinatorApp previewMode={false} />;
-      case 'reports':
-        return (
-          <div style={{ padding: 32, fontFamily: "'DM Sans', sans-serif" }}>
-            <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 8 }}>📝 Daily Reports</div>
-            <div style={{ fontSize: 13, color: B.gray }}>Team reports will display here. Full integration coming in next build.</div>
-          </div>
-        );
+      case 'reports':   return <DailyReports />;
       case 'authtimeline': return <AuthTimeline />;
       case 'recovery': return <OnHoldRecovery />;
-      case 'reports': return <DailyReports />;
-      case 'actions':
-        return (
-          <div style={{ padding: 32, fontFamily: "'DM Sans', sans-serif" }}>
-            <div style={{ fontSize: 18, fontWeight: 800, color: B.black, marginBottom: 8 }}>📋 Action List</div>
-            <div style={{ fontSize: 13, color: B.gray }}>Action items for your team will display here. Full integration coming in next build.</div>
-          </div>
-        );
+      case 'actions':  return <ActionList />;
       default:
         return null;
     }
