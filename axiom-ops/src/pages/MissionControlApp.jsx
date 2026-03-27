@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { AuthDashboard } from './TeamDashboard';
 import CareCoordApp from './CareCoordApp';
+import CareCoordDashboard from './CareCoordDashboard';
 import AuthTracker from './AuthTracker';
 import PatientCensus from './PatientCensus';
 import VisitSchedule from './VisitSchedule';
@@ -219,7 +220,7 @@ export default function MissionControlApp() {
     switch (currentPage) {
       case 'home':
         if (team === 'auth')       return <AuthDashboard />;
-        if (team === 'care_coord') return <CareCoordApp />;
+        if (team === 'care_coord') return <CareCoordDashboard />;
         return <AuthDashboard />;
       case 'census':    return <PatientCensus />;
       case 'visits':    return <VisitSchedule />;
@@ -254,4 +255,4 @@ export default function MissionControlApp() {
     </div>
   );
 }
- 
+
