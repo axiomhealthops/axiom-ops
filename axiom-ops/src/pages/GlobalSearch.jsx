@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
-
+ 
 const B = {
   red:'#D94F2B', darkRed:'#8B1A10', orange:'#E8763A',
   black:'#1A1A1A', gray:'#6B7280', lightGray:'#9CA3AF',
@@ -9,7 +9,7 @@ const B = {
   green:'#16A34A', yellow:'#D97706', danger:'#DC2626',
   blue:'#1D4ED8', purple:'#7C3AED',
 };
-
+ 
 const PAYER_COLORS = {
   'Humana':'#0066CC','CarePlus':'#009B77','Medicare/Devoted':'#1565C0',
   'FL Health Care Plans':'#2E7D32','Aetna':'#7B1FA2','Cigna':'#E65100',
@@ -17,13 +17,13 @@ const PAYER_COLORS = {
   'Private Pay':'#92400E','Private Pay/LOA':'#78350F',
   'Other':'#6B7280','Unknown':'#9CA3AF',
 };
-
+ 
 const PAYER_PHONES = {
   'Humana':'1-800-448-6262','CarePlus':'1-800-794-5907',
   'Medicare/Devoted':'1-800-338-6833','FL Health Care Plans':'1-800-955-8771',
   'Aetna':'1-800-624-0756','Cigna':'1-800-244-6224','HealthFirst':'1-800-935-5465',
 };
-
+ 
 const CENSUS_STATUS_META = {
   active:              { label:'Active',            color:B.green,   bg:'#F0FDF4', border:'#BBF7D0' },
   active_auth_pending: { label:'Active–Auth Pending',color:B.orange,  bg:'#FFF7ED', border:'#FED7AA' },
@@ -38,15 +38,15 @@ const CENSUS_STATUS_META = {
   hospitalized:        { label:'Hospitalized',       color:B.danger,  bg:'#FEF2F2', border:'#FECACA' },
   discharge:           { label:'Discharged',         color:'#6B7280', bg:'#F3F4F6', border:'#D1D5DB' },
 };
-
+ 
 const CARE_COORDINATORS = ['Gypsy Renos','Mary Imperio','Audrey Sarmiento','April Manalo'];
 const AUTH_COORDINATORS  = ['Carla Smith','Ethel Camposano','Gerilyn Bayson','Uriel Sarabosing'];
-
+ 
 const DOC_TYPES = [
   'Auth Request + PCP Signature','Authorization Approval','Authorization Denial',
   'Appeal Letter','Clinical Notes','Plan of Care','Referral','VOB Documentation','Other',
 ];
-
+ 
 function daysUntil(d) {
   if (!d) return null;
   return Math.floor((new Date(d+'T12:00:00') - new Date()) / 86400000);
@@ -56,7 +56,7 @@ function fmtDate(d) {
   try { return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
   catch { return d; }
 }
-
+ 
 // ── Field helpers ──────────────────────────────────────────────
 function Field({ label, value, color, mono }) {
   return (
@@ -66,7 +66,7 @@ function Field({ label, value, color, mono }) {
     </div>
   );
 }
-
+ 
 function StatusBadge({ status, meta }) {
   const m = meta || { label: status, color: B.gray, bg: B.bg, border: B.border };
   return (
@@ -75,7 +75,7 @@ function StatusBadge({ status, meta }) {
     </span>
   );
 }
-
+ 
 function SectionCard({ title, icon, children, accent }) {
   return (
     <div style={{ background:B.card, border:`1px solid ${accent||B.border}`, borderRadius:14, overflow:'hidden', marginBottom:16, boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
@@ -87,13 +87,13 @@ function SectionCard({ title, icon, children, accent }) {
     </div>
   );
 }
-
+ 
 // ── Main PatientProfile ────────────────────────────────────────
 function PatientProfile({ patientName, onClose }) {
   const { profile, isSuperAdmin, isDirector, isTeamLeader } = useAuth();
   const isLeaderOrAbove = isSuperAdmin || isDirector || isTeamLeader;
   const uploaderName = profile?.full_name || profile?.name || 'User';
-
+ 
   // Data state
   const [censusRecord, setCensusRecord]   = useState(null);
   const [authRecord, setAuthRecord]       = useState(null);
@@ -101,14 +101,14 @@ function PatientProfile({ patientName, onClose }) {
   const [documents, setDocuments]         = useState([]);
   const [loading, setLoading]             = useState(true);
   const [activeTab, setActiveTab]         = useState('overview');
-
+ 
   // Edit state
   const [editingAuth, setEditingAuth]     = useState(false);
   const [editingCensus, setEditingCensus] = useState(false);
   const [authForm, setAuthForm]           = useState({});
   const [censusForm, setCensusForm]       = useState({});
   const [saving, setSaving]               = useState(false);
-
+ 
   // Doc upload
   const [docType, setDocType]             = useState('Auth Request + PCP Signature');
   const [docNotes, setDocNotes]           = useState('');
@@ -116,7 +116,7 @@ function PatientProfile({ patientName, onClose }) {
   const [uploadMsg, setUploadMsg]         = useState('');
   const [dragOver, setDragOver]           = useState(false);
   const fileRef                           = useRef();
-
+ 
   const loadAll = async () => {
     const name = patientName;
     const [censusRes, authRes, visitRes, docRes] = await Promise.all([
@@ -133,9 +133,9 @@ function PatientProfile({ patientName, onClose }) {
     if (authRes.data) setAuthForm({...authRes.data});
     if (censusRes.data) setCensusForm({...censusRes.data});
   };
-
+ 
   useEffect(() => { loadAll(); }, [patientName]);
-
+ 
   // Save auth
   const saveAuth = async () => {
     setSaving(true);
@@ -167,7 +167,7 @@ function PatientProfile({ patientName, onClose }) {
     setEditingAuth(false);
     loadAll();
   };
-
+ 
   // Save census
   const saveCensus = async () => {
     setSaving(true);
@@ -182,7 +182,7 @@ function PatientProfile({ patientName, onClose }) {
     setEditingCensus(false);
     loadAll();
   };
-
+ 
   // Upload doc
   const uploadFile = async (file) => {
     if (!file) return;
@@ -210,26 +210,26 @@ function PatientProfile({ patientName, onClose }) {
     } catch(e) { setUploadMsg('Failed: '+e.message); }
     finally { setUploading(false); }
   };
-
+ 
   const viewDoc = async (doc) => {
     const { data, error } = await supabase.storage.from('auth-documents').createSignedUrl(doc.file_path, 300);
     if (!error) window.open(data.signedUrl, '_blank');
   };
-
+ 
   const deleteDoc = async (doc) => {
     if (!confirm(`Delete "${doc.file_name}"?`)) return;
     await supabase.storage.from('auth-documents').remove([doc.file_path]);
     await supabase.from('auth_documents').delete().eq('id', doc.id);
     loadAll();
   };
-
+ 
   const fmtSize = (b) => {
     if (!b) return '';
     if (b < 1024) return `${b}B`;
     if (b < 1024*1024) return `${(b/1024).toFixed(1)}KB`;
     return `${(b/(1024*1024)).toFixed(1)}MB`;
   };
-
+ 
   const getIcon = (type, name) => {
     const t=(type||'').toLowerCase(), n=(name||'').toLowerCase();
     if (t.includes('pdf')||n.endsWith('.pdf')) return '📄';
@@ -237,7 +237,7 @@ function PatientProfile({ patientName, onClose }) {
     if (n.match(/\.(doc|docx)$/)) return '📝';
     return '📎';
   };
-
+ 
   // Derived
   const censusStatus = CENSUS_STATUS_META[censusRecord?.status] || null;
   const payerColor = PAYER_COLORS[authRecord?.payer] || B.gray;
@@ -245,7 +245,7 @@ function PatientProfile({ patientName, onClose }) {
   const evalRem = (parseInt(authRecord?.eval_approved)||0) - (parseInt(authRecord?.eval_used)||0);
   const raRem = (parseInt(authRecord?.ra_approved)||0) - (parseInt(authRecord?.ra_used)||0);
   const daysLeft = daysUntil(authRecord?.auth_thru);
-
+ 
   const docsByDate = useMemo(() => {
     return documents.reduce((acc, doc) => {
       const date = new Date(doc.uploaded_at).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
@@ -254,24 +254,24 @@ function PatientProfile({ patientName, onClose }) {
       return acc;
     }, {});
   }, [documents]);
-
+ 
   const TABS = [
     { key:'overview', label:'📋 Overview' },
     { key:'auth',     label:'🔒 Authorization' },
     { key:'visits',   label:'📅 Visit History' },
     { key:'docs',     label:`📁 Documents${documents.length>0?` (${documents.length})`:''}`},
   ];
-
+ 
   if (loading) return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center' }}>
       <div style={{ background:B.card, borderRadius:16, padding:'32px', fontSize:13, color:B.gray, fontFamily:"'DM Sans',sans-serif" }}>Loading patient profile...</div>
     </div>
   );
-
+ 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:2000, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'20px', overflowY:'auto', fontFamily:"'DM Sans',sans-serif" }}>
       <div style={{ background:B.bg, borderRadius:20, width:'100%', maxWidth:800, marginTop:20, marginBottom:20, boxShadow:'0 24px 64px rgba(0,0,0,0.25)' }}>
-
+ 
         {/* Header */}
         <div style={{ background:`linear-gradient(135deg,${B.darkRed},${B.red})`, borderRadius:'20px 20px 0 0', padding:'20px 24px', position:'relative', overflow:'hidden' }}>
           <div style={{ position:'absolute', inset:0, opacity:0.05, backgroundImage:'radial-gradient(circle,#fff 1px,transparent 1px)', backgroundSize:'18px 18px' }} />
@@ -296,7 +296,7 @@ function PatientProfile({ patientName, onClose }) {
             <button onClick={onClose} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:10, color:'#fff', padding:'8px 14px', fontSize:13, cursor:'pointer', fontFamily:'inherit', flexShrink:0 }}>✕ Close</button>
           </div>
         </div>
-
+ 
         {/* Tabs */}
         <div style={{ display:'flex', gap:0, background:B.card, borderBottom:`1px solid ${B.border}` }}>
           {TABS.map(t => (
@@ -306,10 +306,10 @@ function PatientProfile({ patientName, onClose }) {
             </button>
           ))}
         </div>
-
+ 
         {/* Content */}
         <div style={{ padding:'20px 24px' }}>
-
+ 
           {/* OVERVIEW TAB */}
           {activeTab==='overview' && (
             <>
@@ -327,7 +327,7 @@ function PatientProfile({ patientName, onClose }) {
                   </div>
                 ))}
               </div>
-
+ 
               {/* Care Coordination */}
               <SectionCard title="Care Coordination" icon="🩺" accent={B.green}>
                 {editingCensus ? (
@@ -367,7 +367,7 @@ function PatientProfile({ patientName, onClose }) {
                   </div>
                 )}
               </SectionCard>
-
+ 
               {/* Authorization Summary */}
               <SectionCard title="Authorization Summary" icon="🔒" accent={B.blue}>
                 {authRecord ? (
@@ -424,7 +424,7 @@ function PatientProfile({ patientName, onClose }) {
                   </div>
                 )}
               </SectionCard>
-
+ 
               {/* Recent Documents */}
               {documents.length > 0 && (
                 <SectionCard title={`Documents (${documents.length})`} icon="📁">
@@ -447,7 +447,7 @@ function PatientProfile({ patientName, onClose }) {
               )}
             </>
           )}
-
+ 
           {/* AUTH TAB */}
           {activeTab==='auth' && (
             <SectionCard title="Authorization Details" icon="🔒" accent={B.blue}>
@@ -554,7 +554,7 @@ function PatientProfile({ patientName, onClose }) {
               )}
             </SectionCard>
           )}
-
+ 
           {/* VISITS TAB */}
           {activeTab==='visits' && (
             <SectionCard title="Visit History" icon="📅">
@@ -579,7 +579,7 @@ function PatientProfile({ patientName, onClose }) {
               )}
             </SectionCard>
           )}
-
+ 
           {/* DOCS TAB */}
           {activeTab==='docs' && (
             <SectionCard title="Patient Documents" icon="📁">
@@ -610,7 +610,7 @@ function PatientProfile({ patientName, onClose }) {
                   {uploadMsg&&!uploading&&<div style={{ fontSize:12, color:B.green, marginTop:4, fontWeight:600 }}>{uploadMsg}</div>}
                 </div>
               </div>
-
+ 
               {/* Doc list */}
               {documents.length === 0 ? (
                 <div style={{ textAlign:'center', padding:'24px', color:B.lightGray, background:B.bg, borderRadius:10, border:`1px dashed ${B.border}` }}>
@@ -649,16 +649,16 @@ function PatientProfile({ patientName, onClose }) {
     </div>
   );
 }
-
-
-
-
+ 
+ 
+ 
+ 
 const STATUS_COLORS = {
   active:B.green, active_auth_pending:'#E8763A', auth_pending:'#D97706',
   on_hold:'#6B7280', soc_pending:'#0284C7', eval_pending:B.blue,
   discharge:'#6B7280', hospitalized:B.danger,
 };
-
+ 
 export default function GlobalSearch() {
   const [query, setQuery]           = useState('');
   const [results, setResults]       = useState([]);
@@ -668,7 +668,7 @@ export default function GlobalSearch() {
   const inputRef                    = useRef();
   const dropdownRef                 = useRef();
   const debounceRef                 = useRef();
-
+ 
   const search = useCallback(async (q) => {
     if (!q || q.trim().length < 2) { setResults([]); return; }
     setSearching(true);
@@ -678,7 +678,7 @@ export default function GlobalSearch() {
         supabase.from('patient_census').select('patient_name,status,region,payer').ilike('patient_name', `%${q}%`).limit(8),
         supabase.from('auth_records').select('patient_name,payer,region,auth_status,auth_number,assigned_to').ilike('patient_name', `%${q}%`).limit(8),
       ]);
-
+ 
       // Merge results, deduplicate by patient name
       const merged = new Map();
       for (const r of (censusRes.data||[])) {
@@ -704,7 +704,7 @@ export default function GlobalSearch() {
           source: existing.source ? 'both' : 'auth',
         });
       }
-
+ 
       setResults([...merged.values()].slice(0, 8));
     } catch(e) {
       console.error('Search error:', e);
@@ -712,7 +712,7 @@ export default function GlobalSearch() {
       setSearching(false);
     }
   }, []);
-
+ 
   useEffect(() => {
     clearTimeout(debounceRef.current);
     if (query.trim().length >= 2) {
@@ -724,7 +724,7 @@ export default function GlobalSearch() {
     }
     return () => clearTimeout(debounceRef.current);
   }, [query, search]);
-
+ 
   // Close on outside click
   useEffect(() => {
     const handler = (e) => {
@@ -735,7 +735,7 @@ export default function GlobalSearch() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
-
+ 
   // Keyboard shortcut: Cmd+K
   useEffect(() => {
     const handler = (e) => {
@@ -753,13 +753,13 @@ export default function GlobalSearch() {
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, []);
-
+ 
   const openProfile = (name) => {
     setSelected(name);
     setOpen(false);
     setQuery('');
   };
-
+ 
   return (
     <>
       {/* Search input */}
@@ -782,7 +782,7 @@ export default function GlobalSearch() {
           />
           {searching && <span style={{ position:'absolute', right:10, fontSize:11, color:B.lightGray }}>⏳</span>}
         </div>
-
+ 
         {/* Dropdown */}
         {open && (
           <div ref={dropdownRef} style={{
@@ -834,7 +834,7 @@ export default function GlobalSearch() {
           </div>
         )}
       </div>
-
+ 
       {/* Patient Profile Modal */}
       {selected && (
         <Suspense fallback={<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:14,fontFamily:'sans-serif'}}>Loading...</div>}>
