@@ -12,6 +12,7 @@ import ActionList from './ActionList';
 import AuthTracker from './AuthTracker';
 import SuperAdminPanel from './SuperAdminPanel';
 import GlobalSearch from './GlobalSearch';
+import CareCoordApp from './CareCoordApp';
 import AuthTimeline from './AuthTimeline';
 import OnHoldRecovery from './OnHoldRecovery';
 import DailyReports from './DailyReports';
@@ -47,10 +48,9 @@ const PAGE_TITLES = {
 };
  
 const ROLE_VIEWS = [
-  { role:'super_admin', label:'My View',      icon:'🔑', color:'#D94F2B' },
-  { role:'director',    label:'Director',     icon:'📊', color:'#1565C0' },
-  { role:'regional_mgr',label:'Reg. Manager', icon:'🗺️', color:'#059669' },
-  { role:'coordinator', label:'Coordinator',  icon:'📋', color:'#D97706' },
+  { role:'super_admin', label:'My View',        icon:'🔑', color:'#D94F2B' },
+  { role:'auth',        label:'Authorization',  icon:'📑', color:'#1565C0' },
+  { role:'care_coord',  label:'Care Coord',     icon:'🏥', color:'#059669' },
 ];
  
 function Clock() {
@@ -66,6 +66,17 @@ function Clock() {
       </div>
     </div>
   );
+}
+ 
+// ── Preview wrappers for Super Admin role switcher ─────────
+function AuthTeamPreview() {
+  const censusData = (() => { try { const s=localStorage.getItem('axiom_census'); return s?JSON.parse(s):null; } catch{return null;} })();
+  const hasCensus  = !!(censusData?.counts);
+  return <AuthTracker censusData={censusData} hasCensus={hasCensus} />;
+}
+ 
+function CareCoordPreview() {
+  return <CareCoordApp />;
 }
  
 export default function Dashboard() {
@@ -89,9 +100,8 @@ export default function Dashboard() {
   const exitPreview = () => { setPreviewRole(null); setCurrentPage('overview'); };
  
   const renderContent = () => {
-    if (previewRole === 'coordinator') return <CoordinatorApp previewMode />;
-    if (previewRole === 'regional_mgr') return <DirectorDashboard key="regional" initialTab="regions" />;
-    if (previewRole === 'director')    return <DirectorDashboard key="director" initialTab="overview" />;
+    if (previewRole === 'auth')       return <AuthTeamPreview />;
+    if (previewRole === 'care_coord') return <CareCoordPreview />;
     if (currentPage === 'users')      return <UserManagement />;
     if (currentPage === 'alerts')     return <LiveAlerts censusData={censusData} csvData={csvData} hasCensus={hasCensus} hasPariox={hasPariox} CFG={CFG} />;
     if (currentPage === 'census')     return <PatientCensus censusData={censusData} hasCensus={hasCensus} CFG={CFG} />;
