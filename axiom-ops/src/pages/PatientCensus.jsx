@@ -52,10 +52,10 @@ export default function PatientCensus() {
     </div>
   );
  
-  const regionKeys = effectiveHasCensus ? Object.keys(censusData.byRegion||{}).sort() : [];
+  const regionKeys = effectiveHasCensus ? Object.keys(effectiveCensus?.byRegion||{}).sort() : [];
   const displayCounts = effectiveHasCensus && selectedRegion !== 'all' && effectiveCensus?.byRegion?.[selectedRegion]
-    ? censusData.byRegion[selectedRegion]
-    : (effectiveHasCensus ? effectiveCensus.counts : null);
+    ? effectiveCensus?.byRegion?.[selectedRegion]
+    : (effectiveHasCensus ? effectiveCensus?.counts : null);
   const displayTotal = effectiveHasCensus && selectedRegion !== 'all' && effectiveCensus?.byRegion?.[selectedRegion]
     ? effectiveCensus?.byRegion?.[selectedRegion]?.total
     : (effectiveCensus?.total || 0);
@@ -235,4 +235,3 @@ export default function PatientCensus() {
     </div>
   );
 }
- 
