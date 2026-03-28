@@ -38,6 +38,9 @@ function getAllowedPages(role, team) {
   if (role === 'team_leader') {
     return ['home', 'census', 'visits', 'authtrack', 'reports', 'actions', 'authtimeline', 'recovery'];
   }
+  if (role === 'pod_leader') {
+    return ['home', 'census', 'visits', 'authtrack', 'authtimeline', 'recovery', 'patients', 'myvisits', 'reports', 'actions'];
+  }
   return [];
 }
  
@@ -194,6 +197,98 @@ const PAGE_TITLES = {
 };
  
 // ── Main ───────────────────────────────────────────────────────────────────
+// ── Pod Leader Home ───────────────────────────────────────────
+function PodLeaderHome({ onNavigate }) {
+  const csvData    = (() => { try { const s=localStorage.getItem('axiom_pariox_data'); return s?JSON.parse(s):null; } catch{return null;} })();
+  const censusData = (() => { try { const s=localStorage.getItem('axiom_census'); return s?JSON.parse(s):null; } catch{return null;} })();
+ 
+  const completedVisits = csvData?.completedVisits || 0;
+  const scheduledVisits = csvData?.scheduledVisits || 0;
+  const missedVisits    = csvData?.missedVisits    || 0;
+  const completionRate  = scheduledVisits > 0 ? Math.round(completedVisits/scheduledVisits*100) : 0;
+  const activeCensus    = censusData?.activeCensus || 0;
+  const onHold          = Object.entries(censusData?.counts||{}).filter(([k])=>k.startsWith('on_hold')).reduce((s,[,v])=>s+v,0);
+  const authRisk        = (censusData?.counts?.auth_pending||0) + (censusData?.counts?.active_auth_pending||0);
+  const socPending      = censusData?.counts?.soc_pending || 0;
+  const evalPending     = censusData?.counts?.eval_pending || 0;
+ 
+  const B2 = { red:'#D94F2B', darkRed:'#8B1A10', orange:'#E8763A', black:'#1A1A1A', gray:'#6B7280', border:'#E5E7EB', bg:'#F9FAFB', card:'#fff', green:'#16A34A', yellow:'#D97706', danger:'#DC2626', blue:'#1D4ED8' };
+ 
+  return (
+    <div style={{ fontFamily:"'DM Sans',sans-serif", color:B2.black }}>
+      <div style={{ background:`linear-gradient(135deg,${B2.darkRed},${B2.red},${B2.orange})`, borderRadius:16, padding:'20px 24px', marginBottom:20, boxShadow:'0 4px 16px rgba(139,26,16,0.2)', position:'relative', overflow:'hidden' }}>
+        <div style={{ position:'absolute', inset:0, opacity:0.05, backgroundImage:'radial-gradient(circle,#fff 1px,transparent 1px)', backgroundSize:'20px 20px' }} />
+        <div style={{ position:'relative' }}>
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)', textTransform:'uppercase', letterSpacing:'0.12em', marginBottom:4 }}>Mission Control</div>
+          <div style={{ fontSize:22, fontWeight:800, color:'#fff', marginBottom:2 }}>Good {new Date().getHours()<12?'morning':new Date().getHours()<17?'afternoon':'evening'}, Hervylie 👋</div>
+          <div style={{ fontSize:12, color:'rgba(255,255,255,0.75)' }}>{new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})} · Pod Leader Overview</div>
+        </div>
+      </div>
+ 
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:20 }}>
+        {[
+          { label:'Active Census',   value:activeCensus,    color:B2.green,  icon:'✅' },
+          { label:'Visit Completion',value:`${completionRate}%`, color:completionRate>=85?B2.green:completionRate>=70?B2.yellow:B2.danger, icon:'📅' },
+          { label:'Missed Visits',   value:missedVisits,    color:missedVisits>0?B2.danger:B2.green, icon:'❌' },
+          { label:'Auth Risk',       value:authRisk,        color:authRisk>0?B2.orange:B2.green, icon:'🔒' },
+        ].map(k=>(
+          <div key={k.label} style={{ background:B2.card, border:`1.5px solid ${B2.border}`, borderRadius:12, padding:'14px 16px' }}>
+            <div style={{ fontSize:18, marginBottom:4 }}>{k.icon}</div>
+            <div style={{ fontSize:26, fontWeight:800, color:k.color, fontFamily:"'DM Mono',monospace", lineHeight:1 }}>{k.value}</div>
+            <div style={{ fontSize:11, color:B2.gray, marginTop:4 }}>{k.label}</div>
+          </div>
+        ))}
+      </div>
+ 
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
+        <div style={{ background:B2.card, border:`1.5px solid ${B2.border}`, borderRadius:14, padding:'18px 20px' }}>
+          <div style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>📊 Visit Summary</div>
+          {[
+            { label:'Scheduled', value:scheduledVisits },
+            { label:'Completed', value:completedVisits, color:B2.green },
+            { label:'Missed',    value:missedVisits,    color:missedVisits>0?B2.danger:B2.gray },
+          ].map(r=>(
+            <div key={r.label} style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid #FAF4F2' }}>
+              <span style={{ fontSize:12, color:B2.gray }}>{r.label}</span>
+              <span style={{ fontSize:13, fontWeight:700, color:r.color||B2.black, fontFamily:'monospace' }}>{r.value}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ background:B2.card, border:`1.5px solid ${B2.border}`, borderRadius:14, padding:'18px 20px' }}>
+          <div style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>👥 Census Status</div>
+          {[
+            { label:'Active',      value:activeCensus, color:B2.green },
+            { label:'On Hold',     value:onHold,       color:B2.gray  },
+            { label:'SOC Pending', value:socPending,   color:B2.blue  },
+            { label:'Eval Pending',value:evalPending,  color:B2.blue  },
+          ].map(r=>(
+            <div key={r.label} style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid #FAF4F2' }}>
+              <span style={{ fontSize:12, color:B2.gray }}>{r.label}</span>
+              <span style={{ fontSize:13, fontWeight:700, color:r.color, fontFamily:'monospace' }}>{r.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+ 
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
+        {[
+          { label:'📅 Visit Schedule', page:'visits'   },
+          { label:'📑 Auth Tracker',   page:'authtrack' },
+          { label:'👥 Patient Census', page:'census'    },
+          { label:'⏸️ On-Hold Recovery',page:'recovery' },
+          { label:'📝 Daily Reports',  page:'reports'   },
+          { label:'📋 Action List',    page:'actions'   },
+        ].map(b=>(
+          <button key={b.page} onClick={()=>onNavigate(b.page)}
+            style={{ background:B2.card, border:`1.5px solid ${B2.border}`, borderRadius:10, padding:'12px', fontSize:13, fontWeight:600, color:B2.black, cursor:'pointer', fontFamily:'inherit', textAlign:'center' }}>
+            {b.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+ 
 export default function MissionControlApp() {
   const { profile, role, team, signOut } = useAuth();
   const teamMeta = TEAM_META[team] || TEAM_META.auth;
@@ -223,6 +318,7 @@ export default function MissionControlApp() {
   const renderPage = () => {
     switch (currentPage) {
       case 'home':
+        if (role === 'pod_leader') return <PodLeaderHome onNavigate={setCurrentPage} />;
         if (team === 'auth')       return <AuthDashboard />;
         if (team === 'care_coord') return <CareCoordDashboard onNavigate={setCurrentPage} />;
         return <AuthDashboard />;
