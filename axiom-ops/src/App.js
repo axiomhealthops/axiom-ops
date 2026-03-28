@@ -5,7 +5,7 @@ import Login             from './pages/Login';
 import Dashboard         from './pages/Dashboard';
 import CoordinatorApp    from './pages/CoordinatorApp';
 import MissionControlApp from './pages/MissionControlApp';
-
+ 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return (
@@ -17,27 +17,27 @@ function ProtectedRoute({ children }) {
   if (!user) return <Navigate to="/login" replace />;
   return children;
 }
-
+ 
 function LoginRoute() {
   const { user, profile, loading } = useAuth();
   const navigate = useNavigate();
-
+ 
   useEffect(() => {
     if (!loading && user && profile) {
       navigate('/', { replace: true });
     }
   }, [user, profile, loading, navigate]);
-
+ 
   if (loading) return (
     <div style={{ minHeight:'100vh', background:'#F6F0EE', display:'flex', alignItems:'center',
       justifyContent:'center', color:'#999', fontFamily:'DM Sans,sans-serif', fontSize:14 }}>
       Loading...
     </div>
   );
-
+ 
   return <Login />;
 }
-
+ 
 function AppRoutes() {
   const { profile, loading } = useAuth();
   if (loading) return (
@@ -46,9 +46,9 @@ function AppRoutes() {
       Loading AxiomHealth...
     </div>
   );
-
+ 
   const role = profile?.role || 'coordinator';
-
+ 
   const renderApp = () => {
     switch(role) {
       case 'super_admin':
@@ -56,8 +56,9 @@ function AppRoutes() {
       case 'director':
       case 'regional_mgr':
       case 'admin':
-      case 'pod_leader':
         return <Dashboard />;
+      case 'pod_leader':
+        return <MissionControlApp />;
       case 'team_leader':
       case 'team_member':
         return <MissionControlApp />;
@@ -66,7 +67,7 @@ function AppRoutes() {
         return <CoordinatorApp />;
     }
   };
-
+ 
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
@@ -74,7 +75,7 @@ function AppRoutes() {
     </Routes>
   );
 }
-
+ 
 export default function App() {
   return (
     <AuthProvider>
@@ -84,3 +85,4 @@ export default function App() {
     </AuthProvider>
   );
 }
+ 
