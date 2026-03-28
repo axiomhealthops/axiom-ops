@@ -132,7 +132,7 @@ function MCsidebar({ activePage, onNavigate, allowedPages, teamMeta, profile, on
               {profile?.name || 'User'}
             </div>
             <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>
-              {profile?.role === 'team_leader' ? 'Team Leader' : 'Team Member'}
+              {profile?.role === 'pod_leader' ? 'Pod Leader' : profile?.role === 'team_leader' ? 'Team Leader' : 'Team Member'}
             </div>
           </div>
         </div>
@@ -357,4 +357,3 @@ export default function MissionControlApp() {
     </div>
   );
 }
- 
